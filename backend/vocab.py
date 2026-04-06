@@ -2,14 +2,12 @@ import json
 import os
 from typing import Dict, List, Optional, Set
 
-from backend.gcs_storage import read_json, USE_GCS
+from gcs_storage import read_json, USE_GCS
 
 # Paths
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# Assuming sgsl_processed is at the project root, one level up from backend
-PROJECT_ROOT = os.path.dirname(current_dir)
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 VOCAB_PATH = os.path.join(PROJECT_ROOT, "sgsl_processed", "vocab.json")
-ALIASES_PATH = os.path.join(current_dir, "aliases.json")
+ALIASES_PATH = os.path.join(PROJECT_ROOT, "aliases.json")
 
 # GCS path for vocab
 GCS_VOCAB_PATH = "sgsl_processed/vocab.json"

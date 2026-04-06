@@ -2,14 +2,8 @@ from typing import List, Dict, Optional, Any
 import os
 import sys
 
-# Ensure backend can be imported
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-
-from backend.vocab import vocab
-from backend.gcs_storage import get_static_url, USE_GCS
+from vocab import vocab
+from gcs_storage import get_static_url, GCS_SGLS_DATASET_ROOT
 
 
 def build_render_plan(gloss_tokens: List[str]) -> List[Dict[str, Any]]:
@@ -35,8 +29,10 @@ def build_render_plan(gloss_tokens: List[str]) -> List[Dict[str, Any]]:
             item["type"] = "sign"
             # Construct paths using GCS or local static paths
             
-            # GIF: sgsl_dataset/{sign_name}/{sign_name}.gif
-            item["assets"]["gif"] = get_static_url(f"sgsl_dataset/{sign_name}/{sign_name}.gif")
+            # GIF: {GCS_SGLS_DATASET_ROOT}/{sign_name}/{sign_name}.gif (see gcs_storage)
+            item["assets"]["gif"] = get_static_url(
+                f"{GCS_SGLS_DATASET_ROOT}/{sign_name}/{sign_name}.gif"
+            )
             
             # PKL: sgsl_processed/landmarks_pkl/{sign_name}.pkl
             item["assets"]["pkl"] = get_static_url(f"sgsl_processed/landmarks_pkl/{sign_name}.pkl")

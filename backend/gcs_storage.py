@@ -7,6 +7,8 @@ supporting both local filesystem (for development) and GCS (for production).
 Environment Variables:
     GCS_BUCKET_NAME: Name of the GCS bucket (e.g., 'unmute-datasets')
     USE_GCS: Set to 'true' to use GCS, otherwise uses local filesystem
+    GCS_SGLS_DATASET_ROOT: Object prefix for GIF folders (default 'sgsl_dataset'). Use
+        'sgsl_dataset/sgsl_dataset' if uploads created an extra nested folder.
 """
 
 import os
@@ -19,12 +21,17 @@ from functools import lru_cache
 # Check if we should use GCS
 USE_GCS = os.environ.get("USE_GCS", "false").lower() == "true"
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "unmute-datasets")
+# GIF paths: local dev uses repo root sgsl_dataset/...; GCS may have an extra nested prefix.
+GCS_SGLS_DATASET_ROOT = os.environ.get("GCS_SGLS_DATASET_ROOT", "sgsl_dataset")
 
 # GCS public URL base (for static file serving)
 GCS_PUBLIC_URL = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}"
 
 # Log configuration on module import
-print(f"[GCS Storage] USE_GCS={USE_GCS}, BUCKET={GCS_BUCKET_NAME}, PUBLIC_URL={GCS_PUBLIC_URL}")
+print(
+    f"[GCS Storage] USE_GCS={USE_GCS}, BUCKET={GCS_BUCKET_NAME}, "
+    f"SGLS_DATASET_ROOT={GCS_SGLS_DATASET_ROOT}, PUBLIC_URL={GCS_PUBLIC_URL}"
+)
 
 # Initialize GCS client only if needed
 _gcs_client = None

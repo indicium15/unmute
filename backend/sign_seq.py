@@ -2,7 +2,7 @@ import os
 import pickle
 import numpy as np
 
-from backend.gcs_storage import read_pickle, USE_GCS
+from gcs_storage import read_pickle, USE_GCS
 
 # GCS path prefix for pickle files
 GCS_PKL_PREFIX = "sgsl_processed/landmarks_pkl"
@@ -12,8 +12,7 @@ class SignSequenceManager:
         if pkl_dir is None:
             # Get absolute path relative to this file's location
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            parent_dir = os.path.dirname(current_dir)
-            pkl_dir = os.path.join(parent_dir, "sgsl_processed", "landmarks_pkl")
+            pkl_dir = os.path.join(current_dir, "sgsl_processed", "landmarks_pkl")
         self.pkl_dir = pkl_dir
         self.use_gcs = USE_GCS
         print(f"[SignSequenceManager] PKL directory: {self.pkl_dir}")

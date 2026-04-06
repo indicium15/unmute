@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -7,11 +7,12 @@ import os
 import asyncio
 import json
 
-from backend.vocab import vocab
-from backend.gemini_client import GeminiClient
-from backend.planner import build_render_plan
-from backend.sign_seq import SignSequenceManager
-from backend.gcs_storage import USE_GCS, get_dataset_info
+from vocab import vocab
+from gemini_client import GeminiClient
+from planner import build_render_plan
+from sign_seq import SignSequenceManager
+from gcs_storage import USE_GCS, get_dataset_info
+from auth import verify_token
 
 app = FastAPI()
 
@@ -71,7 +72,7 @@ def health():
     }
 
 @app.post("/api/translate", response_model=TranslateResponse)
-def translate(req: GlossRequest):
+def translate(req: GlossRequest, _user: dict = Depends(verify_token)):
     # 1. Text to Gloss (Gemini) with language support
     print(f"Translating: {req.text} (language: {req.language or 'auto-detect'})")
     gloss_result = gemini.text_to_gloss(req.text, language=req.language)
@@ -91,7 +92,7 @@ def translate(req: GlossRequest):
     }
 
 @app.get("/api/sign/{sign_name}/landmarks")
-def get_landmarks(sign_name: str):
+def get_landmarks(sign_name: str, _user: dict = Depends(verify_token)):
     """Return 3D full-body pose landmark frames for a sign."""
     pose_data = sign_mgr.get_sign_full_body_pose_frames(sign_name)
     
@@ -124,7 +125,7 @@ class TranscribeResponse(BaseModel):
 
 
 @app.post("/api/transcribe")
-async def transcribe_audio(req: TranscribeRequest):
+async def transcribe_audio(req: TranscribeRequest, _user: dict = Depends(verify_token)):
     """
     Transcribe audio to text using Gemini Live API with automatic VAD.
     Supports multiple languages: English, Chinese, Malay, Tamil, and others.

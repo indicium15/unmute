@@ -1,0 +1,113 @@
+import { useState, useCallback } from "react"
+import { auth } from "@/lib/firebase"
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+const API_URL = `${API_BASE_URL}/api/translate`
+const LANDMARKS_URL = `${API_BASE_URL}/api/sign`
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const user = auth.currentUser
+  if (!user) return { "Content-Type": "application/json" }
+  const token = await user.getIdToken()
+  return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+}
+
+export interface PlanItem {
+  type: "sign" | "text"
+  token: string
+  sign_name?: string
+  assets?: {
+    gif?: string
+  }
+}
+
+export interface TranslationResult {
+  plan: PlanItem[]
+  gloss: string[]
+  unmatched?: string[]
+  notes?: string
+  transcription?: string
+}
+
+export interface LandmarksData {
+  pose_frames?: PoseFrame[]
+  hand_frames?: HandFrame[]
+  frames?: PoseFrame[]
+  format?: "pose" | "hands"
+  L_orig?: number
+  L_max?: number
+}
+
+export interface PoseFrame {
+  pose?: number[][]
+  left_hand?: number[][]
+  right_hand?: number[][]
+}
+
+export interface HandFrame {
+  left?: number[][]
+  right?: number[][]
+}
+
+export function useTranslation() {
+  const [result, setResult] = useState<TranslationResult | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const translate = useCallback(async (text: string): Promise<TranslationResult | null> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ text }),
+      })
+
+      if (!res.ok) {
+        throw new Error("Translation failed")
+      }
+
+      const data: TranslationResult = await res.json()
+      setResult(data)
+      return data
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Translation failed"
+      setError(message)
+      return null
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const fetchLandmarks = useCallback(async (signName: string): Promise<LandmarksData | null> => {
+    try {
+      const resp = await fetch(`${LANDMARKS_URL}/${signName}/landmarks`, {
+        headers: await authHeaders(),
+      })
+      if (resp.ok) {
+        return await resp.json()
+      }
+      return null
+    } catch (e) {
+      console.error("Error fetching landmarks:", e)
+      return null
+    }
+  }, [])
+
+  const clearResult = useCallback(() => {
+    setResult(null)
+    setError(null)
+  }, [])
+
+  return {
+    result,
+    setResult,
+    isLoading,
+    error,
+    translate,
+    fetchLandmarks,
+    clearResult,
+  }
+}

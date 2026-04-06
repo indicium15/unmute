@@ -1,83 +1,47 @@
 # Scripts
 
-Utility scripts for testing and verifying the Unmute backend API.
+Utilities for building the sign-language vocabulary and preprocessing SGSL GIFs with MediaPipe (hands + pose). Run them from the **repository root** with your Python environment (dependencies include `mediapipe`, `numpy`, Pillow; see `backend/requirements.txt` or install as needed).
 
-## verify_api.py
+## `build_vocab_from_json.py`
 
-Tests the backend API endpoints to ensure they're working correctly.
+Scans per-sign folders under a dataset root, reads each sign’s JSON metadata, derives canonical tokens, and writes `vocab.json` (`token_to_sign` / `sign_to_token`).
 
-### Usage
-
-**Basic usage (uses default localhost:8000):**
 ```bash
-python scripts/verify_api.py
+python scripts/build_vocab_from_json.py --dataset sgsl_dataset --output sgsl_processed
 ```
 
-**Using custom API URL:**
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--dataset` | `sgsl_dataset` | Root folder containing one subfolder per sign |
+| `--output` | `sgsl_processed` | Directory where `vocab.json` is written |
+
+## `preprocess_gifs_to_pkl.py`
+
+Walks the dataset, runs MediaPipe Hands and Pose on each sign GIF, normalizes landmark sequences, and saves per-sign pickles under `output/landmarks_pkl/`. Also writes `meta.json` (e.g. global frame length `L_max`, sign list).
+
 ```bash
-# Via environment variable
-API_BASE_URL=http://localhost:8001 python scripts/verify_api.py
-
-# For Docker container
-API_BASE_URL=http://unmute-backend:8000 python scripts/verify_api.py
+python scripts/preprocess_gifs_to_pkl.py --dataset sgsl_dataset --output sgsl_processed
 ```
 
-**Test only health endpoint:**
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--dataset` | `sgsl_dataset` | Dataset root (subfolders with GIF + JSON) |
+| `--output` | `sgsl_processed` | Output directory for pickles and `meta.json` |
+| `--limit` | (none) | Process at most this many signs (smoke tests) |
+| `--workers` | CPU count | Worker processes for parallel processing |
+
+## `save_detection_gifs.py`
+
+Runs the same style of detection on a **single** input GIF and writes **two** animated GIFs: hand landmarks and body/pose overlays (defaults: `<basename>_hands.gif` and `<basename>_body.gif` next to the input).
+
 ```bash
-python scripts/verify_api.py health
+python scripts/save_detection_gifs.py path/to/sign.gif
+python scripts/save_detection_gifs.py path/to/sign.gif -oh out/hands.gif -ob out/body.gif
 ```
 
-### Environment Variables
-
-- `API_BASE_URL` - Base URL of the API to test (default: `http://127.0.0.1:8000`)
-
-### Examples
-
-**Test local development server:**
-```bash
-python scripts/verify_api.py
-```
-
-**Test Dockerized backend:**
-```bash
-API_BASE_URL=http://localhost:8000 python scripts/verify_api.py
-```
-
-**Test remote deployment:**
-```bash
-API_BASE_URL=https://api.example.com python scripts/verify_api.py
-```
-
-**Using .env file:**
-```bash
-# Create .env file
-echo "API_BASE_URL=http://localhost:8000" > .env
-
-# Load and run (bash/zsh)
-export $(cat .env | xargs) && python scripts/verify_api.py
-```
-
-### Output
-
-The script will:
-1. Check the `/health` endpoint
-2. Test the `/api/translate` endpoint with sample text
-3. Display JSON responses
-4. Exit with code 0 on success, 1 on failure
-
-Example output:
-```
-Using API Base URL: http://127.0.0.1:8000
-(Override with API_BASE_URL environment variable)
-
-Testing http://127.0.0.1:8000/health...
-{'status': 'ok', 'vocab_size': 717}
-✅ Health Check Passed
-Testing http://127.0.0.1:8000/api/translate with text='I want apple'...
-{
-  "gloss": ["I", "WANT", "APPLE"],
-  "unmatched": [],
-  "plan": [...]
-}
-✅ Translate Check Passed
-```
+| Argument | Description |
+|----------|-------------|
+| `input_gif` | Path to the source GIF (positional) |
+| `-oh`, `--output-hand` | Hand-overlay GIF path (optional) |
+| `-ob`, `--output-body` | Body-overlay GIF path (optional) |
+| `-d`, `--duration` | Frame duration in ms (default: preserve input timings) |

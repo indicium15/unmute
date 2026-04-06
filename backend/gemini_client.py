@@ -9,13 +9,7 @@ import asyncio
 import io
 from pydub import AudioSegment
 
-# Ensure backend can be imported if running as script
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-
-from backend.vocab import vocab
+from vocab import vocab
 from dotenv import load_dotenv
 
 # Load .env file

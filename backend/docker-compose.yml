@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: unmute-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - API_BASE_URL=${API_BASE_URL}
+      - USE_GCS=${USE_GCS}
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-key.json
+    volumes:
+      - .:/app/backend
+      - ../sgsl_dataset:/app/sgsl_dataset:ro
+      - ../sgsl_processed:/app/sgsl_processed:ro
+      - ../gcs-key.json:/app/gcs-key.json:ro
+    restart: unless-stopped
+    networks:
+      - unmute-network
+
+networks:
+  unmute-network:
+    driver: bridge
