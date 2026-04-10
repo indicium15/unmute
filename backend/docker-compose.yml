@@ -14,6 +14,8 @@ services:
       - USE_GCS=${USE_GCS}
       - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-key.json
+      # Optional: target a named Firestore database (defaults to "(default)")
+      - FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-(default)}
     volumes:
       - .:/app/backend
       - ../sgsl_dataset:/app/sgsl_dataset:ro
