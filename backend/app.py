@@ -211,6 +211,43 @@ async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundT
     }
 
 
+# ── Admin endpoints ───────────────────────────────────────────────────────────
+
+@app.get("/api/admin/check")
+def admin_check(user: dict = Depends(verify_token)):
+    """Return whether the authenticated user has admin privileges."""
+    return {"is_admin": database.is_admin(user.get("uid"))}
+
+
+@app.get("/api/admin/logs")
+def admin_logs(
+    log_type: str = "translation",
+    limit: int = 25,
+    offset: int = 0,
+    user: dict = Depends(verify_token),
+):
+    """Return a paginated page of translation or transcription logs.
+
+    Only accessible to users whose UID exists in the Firestore ``admins``
+    collection.  Raises HTTP 403 otherwise.
+    """
+    if not database.is_admin(user.get("uid")):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not (1 <= limit <= 100):
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be non-negative")
+
+    if log_type == "translation":
+        logs, has_more = database.get_translation_logs(limit=limit, offset=offset)
+    elif log_type == "transcription":
+        logs, has_more = database.get_transcription_logs(limit=limit, offset=offset)
+    else:
+        raise HTTPException(status_code=400, detail="log_type must be 'translation' or 'transcription'")
+
+    return {"logs": logs, "has_more": has_more}
+
+
 # Frontend is now served separately via Vite dev server (unmute-fe)
 
 

@@ -147,3 +147,95 @@ def log_transcription(
     except Exception as exc:
         logger.error("[DB] Failed to log transcription: %s", exc)
         return None
+
+
+# ── Admin helpers ─────────────────────────────────────────────────────────────
+
+def _serialize_doc(data: dict) -> dict:
+    """Convert Firestore-specific types (e.g. DatetimeWithNanoseconds) to plain
+    JSON-serialisable Python types so API responses can be encoded without error.
+    """
+    result = {}
+    for key, value in data.items():
+        if isinstance(value, datetime):
+            result[key] = value.isoformat()
+        elif isinstance(value, list):
+            result[key] = [v.isoformat() if isinstance(v, datetime) else v for v in value]
+        else:
+            result[key] = value
+    return result
+
+
+def is_admin(user_id: str) -> bool:
+    """Return ``True`` if *user_id* has a document in the ``admins`` collection.
+
+    The ``admins`` collection uses the Firebase UID as the document ID, with
+    optional metadata fields (``user_email``, ``added_at``).
+    """
+    db = get_db()
+    if db is None:
+        return False
+    try:
+        return db.collection("admins").document(user_id).get().exists
+    except Exception as exc:
+        logger.error("[DB] Failed to check admin status for %s: %s", user_id, exc)
+        return False
+
+
+def get_translation_logs(
+    limit: int = 25, offset: int = 0
+) -> tuple[list[dict], bool]:
+    """Return a page of *translation_logs* ordered by timestamp descending.
+
+    Fetches ``limit + 1`` rows to cheaply determine whether a next page exists
+    without a separate COUNT query.
+
+    Returns:
+        ``(logs, has_more)`` – list of serialisable dicts and a boolean flag.
+    """
+    db = get_db()
+    if db is None:
+        return [], False
+    try:
+        docs = list(
+            db.collection("translation_logs")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(limit + 1)
+            .offset(offset)
+            .stream()
+        )
+        has_more = len(docs) > limit
+        return [
+            {"id": doc.id, **_serialize_doc(doc.to_dict())} for doc in docs[:limit]
+        ], has_more
+    except Exception as exc:
+        logger.error("[DB] Failed to fetch translation logs: %s", exc)
+        return [], False
+
+
+def get_transcription_logs(
+    limit: int = 25, offset: int = 0
+) -> tuple[list[dict], bool]:
+    """Return a page of *transcription_logs* ordered by timestamp descending.
+
+    Returns:
+        ``(logs, has_more)`` – list of serialisable dicts and a boolean flag.
+    """
+    db = get_db()
+    if db is None:
+        return [], False
+    try:
+        docs = list(
+            db.collection("transcription_logs")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(limit + 1)
+            .offset(offset)
+            .stream()
+        )
+        has_more = len(docs) > limit
+        return [
+            {"id": doc.id, **_serialize_doc(doc.to_dict())} for doc in docs[:limit]
+        ], has_more
+    except Exception as exc:
+        logger.error("[DB] Failed to fetch transcription logs: %s", exc)
+        return [], False
