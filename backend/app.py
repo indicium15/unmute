@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ from planner import build_render_plan
 from sign_seq import SignSequenceManager
 from gcs_storage import USE_GCS, get_dataset_info
 from auth import verify_token
+import database
 
 app = FastAPI()
 
@@ -72,17 +73,28 @@ def health():
     }
 
 @app.post("/api/translate", response_model=TranslateResponse)
-def translate(req: GlossRequest, _user: dict = Depends(verify_token)):
+def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_token)):
     # 1. Text to Gloss (Gemini) with language support
     print(f"Translating: {req.text} (language: {req.language or 'auto-detect'})")
     gloss_result = gemini.text_to_gloss(req.text, language=req.language)
     gloss_tokens = gloss_result.get("gloss", [])
     unmatched = gloss_result.get("unmatched", [])
     detected_language = gloss_result.get("detected_language")
-    
+
     # 2. Gloss to Plan (Planner)
     plan = build_render_plan(gloss_tokens)
-    
+
+    # 3. Persist query, intermediate Gemini response, and output tokens to Firestore
+    background_tasks.add_task(
+        database.log_translation,
+        user_id=user.get("uid"),
+        user_email=user.get("email"),
+        query_type="text",
+        input_text=req.text,
+        gemini_response=gloss_result,
+        render_plan=plan,
+    )
+
     return {
         "gloss": gloss_tokens,
         "unmatched": unmatched,
@@ -125,31 +137,31 @@ class TranscribeResponse(BaseModel):
 
 
 @app.post("/api/transcribe")
-async def transcribe_audio(req: TranscribeRequest, _user: dict = Depends(verify_token)):
+async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_token)):
     """
     Transcribe audio to text using Gemini Live API with automatic VAD.
     Supports multiple languages: English, Chinese, Malay, Tamil, and others.
     If auto_translate is True, automatically translates the transcription to sign language.
-    
+
     Args:
         req: TranscribeRequest with audio_data, mime_type, optional language, and auto_translate flag
     """
     print(f"Received transcription request (audio mime_type: {req.mime_type}, language: {req.language or 'auto-detect'}, auto_translate: {req.auto_translate})")
-    
+
     # Transcribe audio using Live API with VAD and language support
     result = await gemini.transcribe_audio_live(req.audio_data, req.mime_type, req.language)
-    
+
     if "error" in result:
         # Fallback to standard transcription method if Live API fails
         print(f"Live API failed, falling back to standard transcription: {result['error']}")
         result = gemini.transcribe_audio(req.audio_data, req.mime_type, req.language)
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
-    
+
     transcription = result.get("transcription", "")
     detected_language = result.get("detected_language")
     print(f"Transcription: {transcription} (detected language: {detected_language})")
-    
+
     # If auto_translate is enabled, automatically translate
     if req.auto_translate and transcription:
         print(f"Auto-translating: {transcription}")
@@ -158,10 +170,21 @@ async def transcribe_audio(req: TranscribeRequest, _user: dict = Depends(verify_
         gloss_result = gemini.text_to_gloss(transcription, language=translation_lang)
         gloss_tokens = gloss_result.get("gloss", [])
         unmatched = gloss_result.get("unmatched", [])
-        
+
         # Build render plan
         plan = build_render_plan(gloss_tokens)
-        
+
+        # Persist query, intermediate Gemini response, and output tokens to Firestore
+        background_tasks.add_task(
+            database.log_translation,
+            user_id=user.get("uid"),
+            user_email=user.get("email"),
+            query_type="voice",
+            input_text=transcription,
+            gemini_response=gloss_result,
+            render_plan=plan,
+        )
+
         # Return full translation response
         return {
             "transcription": transcription,
@@ -171,7 +194,16 @@ async def transcribe_audio(req: TranscribeRequest, _user: dict = Depends(verify_
             "plan": plan,
             "notes": gloss_result.get("notes")
         }
-    
+
+    # Persist transcription-only result to Firestore
+    background_tasks.add_task(
+        database.log_transcription,
+        user_id=user.get("uid"),
+        user_email=user.get("email"),
+        transcription=transcription,
+        detected_language=detected_language,
+    )
+
     # Return just transcription with detected language
     return {
         "transcription": transcription,
