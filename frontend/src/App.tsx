@@ -153,6 +153,7 @@ function App() {
             isPlaying={isPlaying}
             onReplay={handleReplay}
             onAvatarReady={handleAvatarReady}
+            logDocId={result?.log_doc_id}
           />
         </main>
       ) : mode === "video" ? (

@@ -61,7 +61,8 @@ class TranslateResponse(BaseModel):
     unmatched: List[str]
     plan: List[Dict[str, Any]]
     notes: Optional[str] = None
-    detected_language: Optional[str] = None  # Language code if auto-detected
+    detected_language: Optional[str] = None
+    log_doc_id: Optional[str] = None  # Firestore doc ID for feedback linkage
 
 @app.get("/health")
 def health():
@@ -84,7 +85,12 @@ def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict =
     # 2. Gloss to Plan (Planner)
     plan = build_render_plan(gloss_tokens)
 
-    # 3. Persist query, intermediate Gemini response, and output tokens to Firestore
+    # 3. Pre-generate the Firestore doc ID (local op, no network call) so it
+    #    can be returned to the client for feedback linkage before the background
+    #    write completes.
+    db = database.get_db()
+    log_doc_id = db.collection("translation_logs").document().id if db else None
+
     background_tasks.add_task(
         database.log_translation,
         user_id=user.get("uid"),
@@ -93,6 +99,7 @@ def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict =
         input_text=req.text,
         gemini_response=gloss_result,
         render_plan=plan,
+        doc_id=log_doc_id,
     )
 
     return {
@@ -100,7 +107,8 @@ def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict =
         "unmatched": unmatched,
         "plan": plan,
         "notes": gloss_result.get("notes"),
-        "detected_language": detected_language
+        "detected_language": detected_language,
+        "log_doc_id": log_doc_id,
     }
 
 @app.get("/api/sign/{sign_name}/landmarks")
@@ -129,11 +137,12 @@ class TranscribeRequest(BaseModel):
 
 class TranscribeResponse(BaseModel):
     transcription: str
-    detected_language: Optional[str] = None  # Language code if auto-detected
-    gloss: Optional[List[str]] = None  # Only included if auto_translate is True
-    unmatched: Optional[List[str]] = None  # Only included if auto_translate is True
-    plan: Optional[List[Dict[str, Any]]] = None  # Only included if auto_translate is True
-    notes: Optional[str] = None  # Only included if auto_translate is True
+    detected_language: Optional[str] = None
+    gloss: Optional[List[str]] = None
+    unmatched: Optional[List[str]] = None
+    plan: Optional[List[Dict[str, Any]]] = None
+    notes: Optional[str] = None
+    log_doc_id: Optional[str] = None  # Firestore doc ID for feedback linkage (only when auto_translate=True)
 
 
 @app.post("/api/transcribe")
@@ -174,6 +183,10 @@ async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundT
         # Build render plan
         plan = build_render_plan(gloss_tokens)
 
+        # Pre-generate doc ID for feedback linkage
+        db = database.get_db()
+        log_doc_id = db.collection("translation_logs").document().id if db else None
+
         # Persist query, intermediate Gemini response, and output tokens to Firestore
         background_tasks.add_task(
             database.log_translation,
@@ -183,6 +196,7 @@ async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundT
             input_text=transcription,
             gemini_response=gloss_result,
             render_plan=plan,
+            doc_id=log_doc_id,
         )
 
         # Return full translation response
@@ -192,7 +206,8 @@ async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundT
             "gloss": gloss_tokens,
             "unmatched": unmatched,
             "plan": plan,
-            "notes": gloss_result.get("notes")
+            "notes": gloss_result.get("notes"),
+            "log_doc_id": log_doc_id,
         }
 
     # Persist transcription-only result to Firestore
@@ -209,6 +224,35 @@ async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundT
         "transcription": transcription,
         "detected_language": detected_language
     }
+
+
+# ── Feedback endpoint ─────────────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    rating: str  # "positive" or "negative"
+    log_doc_id: Optional[str] = None  # Firestore translation_logs document ID
+    comment: Optional[str] = None
+
+
+@app.post("/api/feedback")
+def submit_feedback(req: FeedbackRequest, user: dict = Depends(verify_token)):
+    """Store a thumbs-up / thumbs-down rating (with optional comment) for a
+    translation.  The ``log_doc_id`` links the feedback to the original entry
+    in *translation_logs*.
+    """
+    if req.rating not in ("positive", "negative"):
+        raise HTTPException(
+            status_code=400, detail="rating must be 'positive' or 'negative'"
+        )
+
+    doc_id = database.log_feedback(
+        user_id=user.get("uid"),
+        user_email=user.get("email"),
+        rating=req.rating,
+        translation_log_id=req.log_doc_id,
+        comment=req.comment,
+    )
+    return {"success": doc_id is not None}
 
 
 # ── Admin endpoints ───────────────────────────────────────────────────────────
@@ -242,8 +286,10 @@ def admin_logs(
         logs, has_more = database.get_translation_logs(limit=limit, offset=offset)
     elif log_type == "transcription":
         logs, has_more = database.get_transcription_logs(limit=limit, offset=offset)
+    elif log_type == "feedback":
+        logs, has_more = database.get_feedback_logs(limit=limit, offset=offset)
     else:
-        raise HTTPException(status_code=400, detail="log_type must be 'translation' or 'transcription'")
+        raise HTTPException(status_code=400, detail="log_type must be 'translation', 'transcription', or 'feedback'")
 
     return {"logs": logs, "has_more": has_more}
 

@@ -27,6 +27,7 @@ export interface TranslationResult {
   unmatched?: string[]
   notes?: string
   transcription?: string
+  log_doc_id?: string
 }
 
 export interface LandmarksData {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw } from "lucide-react"
+import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, ThumbsUp, ThumbsDown } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
 }
 
-type LogTab = "translation" | "transcription"
+type LogTab = "translation" | "transcription" | "feedback"
 
 interface TranslationLog {
   id: string
@@ -39,6 +39,16 @@ interface TranscriptionLog {
   timestamp: string
   transcription: string
   detected_language: string | null
+}
+
+interface FeedbackLog {
+  id: string
+  user_id: string
+  user_email: string | null
+  timestamp: string
+  rating: "positive" | "negative"
+  translation_log_id: string | null
+  comment: string | null
 }
 
 function formatTimestamp(ts: string): string {
@@ -187,6 +197,66 @@ function TranscriptionRow({ log }: { log: TranscriptionLog }) {
   )
 }
 
+// ── Feedback log row ───────────────────────────────────────────────────────
+
+function FeedbackRow({ log }: { log: FeedbackLog }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <>
+      <tr
+        className="border-b border-[var(--color-border-soft)] hover:bg-[var(--color-bg-cream)] cursor-pointer transition-colors"
+        onClick={() => setExpanded((e) => !e)}
+      >
+        <td className="py-3 px-4 text-xs text-text-muted whitespace-nowrap">
+          {formatTimestamp(log.timestamp)}
+        </td>
+        <td className="py-3 px-4 text-sm text-text-secondary max-w-[180px] truncate">
+          {log.user_email ?? "—"}
+        </td>
+        <td className="py-3 px-4">
+          {log.rating === "positive" ? (
+            <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200">
+              <ThumbsUp className="w-3 h-3" /> Helpful
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--color-accent-soft)] text-[var(--color-accent-terracotta)] border border-[var(--color-accent-soft)]">
+              <ThumbsDown className="w-3 h-3" /> Not helpful
+            </span>
+          )}
+        </td>
+        <td className="py-3 px-4 text-sm text-text-primary max-w-[280px]">
+          {log.comment ? truncate(log.comment, 80) : <span className="text-text-muted italic">No comment</span>}
+        </td>
+        <td className="py-3 px-4 text-xs text-text-muted font-mono">
+          {log.translation_log_id ? truncate(log.translation_log_id, 12) : "—"}
+        </td>
+        <td className="py-3 px-4 text-text-muted">
+          {expanded ? (
+            <ChevronDown className="w-4 h-4" />
+          ) : (
+            <ChevronRight className="w-4 h-4" />
+          )}
+        </td>
+      </tr>
+
+      {expanded && (
+        <tr className="bg-[var(--color-bg-cream)]">
+          <td colSpan={6} className="px-6 py-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
+              {log.comment && <Field label="Full Comment" value={log.comment} />}
+              <Field label="User ID" value={log.user_id} mono />
+              {log.translation_log_id && (
+                <Field label="Translation Log ID" value={log.translation_log_id} mono />
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
 // ── Small display helper ───────────────────────────────────────────────────
 
 function Field({
@@ -273,6 +343,7 @@ export function AdminPage() {
   const TAB_LABELS: Record<LogTab, string> = {
     translation: "Translation Logs",
     transcription: "Transcription Logs",
+    feedback: "Feedback",
   }
 
   return (
@@ -356,7 +427,7 @@ export function AdminPage() {
                   ))}
                 </tbody>
               </table>
-            ) : (
+            ) : tab === "transcription" ? (
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-[var(--color-border-soft)]">
@@ -373,6 +444,26 @@ export function AdminPage() {
                 <tbody>
                   {(logs as TranscriptionLog[]).map((log) => (
                     <TranscriptionRow key={log.id} log={log} />
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-[var(--color-border-soft)]">
+                    {["Timestamp", "User", "Rating", "Comment", "Log Ref", ""].map((h) => (
+                      <th
+                        key={h}
+                        className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(logs as FeedbackLog[]).map((log) => (
+                    <FeedbackRow key={log.id} log={log} />
                   ))}
                 </tbody>
               </table>

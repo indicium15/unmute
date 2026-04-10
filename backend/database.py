@@ -50,6 +50,7 @@ def log_translation(
     input_text: str,
     gemini_response: dict[str, Any],
     render_plan: list[dict[str, Any]],
+    doc_id: Optional[str] = None,
 ) -> Optional[str]:
     """Persist a completed translation session to the *translation_logs* collection.
 
@@ -74,7 +75,7 @@ def log_translation(
         return None
 
     try:
-        doc_ref = db.collection("translation_logs").document()
+        doc_ref = db.collection("translation_logs").document(doc_id)
         doc_ref.set({
             # ── Who made the request ──────────────────────────────────────────
             "user_id": user_id,
@@ -238,4 +239,76 @@ def get_transcription_logs(
         ], has_more
     except Exception as exc:
         logger.error("[DB] Failed to fetch transcription logs: %s", exc)
+        return [], False
+
+
+def log_feedback(
+    user_id: str,
+    user_email: Optional[str],
+    rating: str,
+    translation_log_id: Optional[str] = None,
+    comment: Optional[str] = None,
+) -> Optional[str]:
+    """Persist a user feedback submission to the *feedback_logs* collection.
+
+    Args:
+        user_id:            Firebase UID of the authenticated user.
+        user_email:         User's email address (may be None).
+        rating:             ``"positive"`` or ``"negative"``.
+        translation_log_id: Firestore document ID of the related translation
+                            log (may be None if the ID was never generated).
+        comment:            Optional free-text comment from the user.
+
+    Returns:
+        The Firestore document ID on success, ``None`` on any failure.
+    """
+    db = get_db()
+    if db is None:
+        logger.warning("[DB] Firestore unavailable – skipping feedback log")
+        return None
+
+    try:
+        doc_ref = db.collection("feedback_logs").document()
+        doc_ref.set({
+            "user_id": user_id,
+            "user_email": user_email,
+            "timestamp": datetime.now(timezone.utc),
+            "translation_log_id": translation_log_id,
+            "rating": rating,
+            "comment": comment if comment else None,
+        })
+        logger.info(
+            "[DB] Feedback logged for user %s → doc %s", user_id, doc_ref.id
+        )
+        return doc_ref.id
+    except Exception as exc:
+        logger.error("[DB] Failed to log feedback: %s", exc)
+        return None
+
+
+def get_feedback_logs(
+    limit: int = 25, offset: int = 0
+) -> tuple[list[dict], bool]:
+    """Return a page of *feedback_logs* ordered by timestamp descending.
+
+    Returns:
+        ``(logs, has_more)`` – list of serialisable dicts and a boolean flag.
+    """
+    db = get_db()
+    if db is None:
+        return [], False
+    try:
+        docs = list(
+            db.collection("feedback_logs")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(limit + 1)
+            .offset(offset)
+            .stream()
+        )
+        has_more = len(docs) > limit
+        return [
+            {"id": doc.id, **_serialize_doc(doc.to_dict())} for doc in docs[:limit]
+        ], has_more
+    except Exception as exc:
+        logger.error("[DB] Failed to fetch feedback logs: %s", exc)
         return [], False
