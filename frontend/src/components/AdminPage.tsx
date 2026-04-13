@@ -290,7 +290,7 @@ function Field({
 
 export function AdminPage() {
   const [tab, setTab] = useState<LogTab>("translation")
-  const [logs, setLogs] = useState<(TranslationLog | TranscriptionLog)[]>([])
+  const [logs, setLogs] = useState<(TranslationLog | TranscriptionLog | FeedbackLog)[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(0)
