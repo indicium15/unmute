@@ -69,10 +69,10 @@ cd backend && gcloud builds submit --tag gcr.io/unmute-c9757/unmute-backend .
 
 ### Deploy to Cloud Run
 ```bash
-gcloud run deploy unmute-backend --image gcr.io/unmute-c9757/unmute-backend --platform managed --region asia-southeast1 --memory 1Gi --allow-unauthenticated --set-env-vars GEMINI_API_KEY=<your-gemini-key>,USE_GCS=true,GCS_BUCKET_NAME=unmute-c9757-datasets,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json --set-secrets /secrets/firebase-key.json=firebase-key:latest --project unmute-c9757
+gcloud run deploy unmute-backend --image gcr.io/unmute-c9757/unmute-backend --platform managed --region asia-southeast1 --memory 1Gi --allow-unauthenticated --set-env-vars USE_GCS=true,GCS_BUCKET_NAME=unmute-c9757-datasets,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json --set-secrets GEMINI_API_KEY=gemini-api-key:latest,/secrets/firebase-key.json=firebase-key:latest --project unmute-c9757
 ```
 
-Replace `<your-gemini-key>` with your key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+Create and rotate the `gemini-api-key` Secret Manager secret with [GEMINI_KEY_ROTATION.md](GEMINI_KEY_ROTATION.md).
 
 After deploying, copy the Cloud Run URL from the output — you'll need it for the frontend `.env`.
 

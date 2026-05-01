@@ -78,6 +78,12 @@ def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict =
     # 1. Text to Gloss (Gemini) with language support
     print(f"Translating: {req.text} (language: {req.language or 'auto-detect'})")
     gloss_result = gemini.text_to_gloss(req.text, language=req.language)
+    if gloss_result.get("error"):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gemini translation failed: {gloss_result['error']}",
+        )
+
     gloss_tokens = gloss_result.get("gloss", [])
     unmatched = gloss_result.get("unmatched", [])
     detected_language = gloss_result.get("detected_language")
