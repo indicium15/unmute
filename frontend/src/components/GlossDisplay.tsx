@@ -10,7 +10,7 @@ export function GlossDisplay({ gloss, activeToken, unmatched = [] }: GlossDispla
   if (gloss.length === 0) {
     return (
       <div className="text-center text-text-muted text-sm italic">
-        No gloss tokens found
+        No signs found
       </div>
     )
   }

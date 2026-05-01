@@ -5,9 +5,10 @@ from typing import Dict, List, Optional, Set
 from gcs_storage import read_json, USE_GCS
 
 # Paths
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 VOCAB_PATH = os.path.join(PROJECT_ROOT, "sgsl_processed", "vocab.json")
-ALIASES_PATH = os.path.join(PROJECT_ROOT, "aliases.json")
+ALIASES_PATH = os.path.join(BACKEND_DIR, "aliases.json")
 
 # GCS path for vocab
 GCS_VOCAB_PATH = "sgsl_processed/vocab.json"

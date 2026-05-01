@@ -5,6 +5,7 @@
 - Google Cloud project: `unmute-c9757`
 - Billing enabled on the project
 - `gcloud` CLI installed and authenticated
+- `uv` installed for local backend development
 - `firebase-key.json` in the repo root (Firebase service account private key)
 
 ## One-time Setup
@@ -52,6 +53,15 @@ gsutil -m cp -r sgsl_processed/ gs://unmute-c9757-datasets/sgsl_processed/
 
 ## Deploying
 
+The Cloud Run image installs backend dependencies with `uv` from `backend/pyproject.toml` and `backend/uv.lock`.
+
+### Local backend development
+```bash
+cd backend
+uv sync
+uv run uvicorn app:app --reload --host 0.0.0.0 --port 8000
+```
+
 ### Build the image
 ```bash
 cd backend && gcloud builds submit --tag gcr.io/unmute-c9757/unmute-backend .
@@ -59,7 +69,7 @@ cd backend && gcloud builds submit --tag gcr.io/unmute-c9757/unmute-backend .
 
 ### Deploy to Cloud Run
 ```bash
-gcloud run deploy unmute-backend --image gcr.io/unmute-c9757/unmute-backend --platform managed --region asia-southeast1 --allow-unauthenticated --set-env-vars GEMINI_API_KEY=<your-gemini-key>,USE_GCS=true,GCS_BUCKET_NAME=unmute-c9757-datasets,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json --set-secrets /secrets/firebase-key.json=firebase-key:latest --project unmute-c9757
+gcloud run deploy unmute-backend --image gcr.io/unmute-c9757/unmute-backend --platform managed --region asia-southeast1 --memory 1Gi --allow-unauthenticated --set-env-vars GEMINI_API_KEY=<your-gemini-key>,USE_GCS=true,GCS_BUCKET_NAME=unmute-c9757-datasets,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json --set-secrets /secrets/firebase-key.json=firebase-key:latest --project unmute-c9757
 ```
 
 Replace `<your-gemini-key>` with your key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
@@ -70,7 +80,7 @@ After deploying, copy the Cloud Run URL from the output — you'll need it for t
 
 ```bash
 cd backend && gcloud builds submit --tag gcr.io/unmute-c9757/unmute-backend .
-gcloud run deploy unmute-backend --image gcr.io/unmute-c9757/unmute-backend --platform managed --region asia-southeast1 --project unmute-c9757
+gcloud run deploy unmute-backend --image gcr.io/unmute-c9757/unmute-backend --platform managed --region asia-southeast1 --memory 1Gi --project unmute-c9757
 ```
 
 ## Environment Variables
@@ -87,4 +97,5 @@ gcloud run deploy unmute-backend --image gcr.io/unmute-c9757/unmute-backend --pl
 - `firebase-key.json` is gitignored — never commit it
 - The Gemini API key is also sensitive — never commit `.env`
 - Cloud Run automatically scales to zero when not in use (cost-efficient)
-- Port is dynamically set via `${PORT:-8000}` in the Dockerfile to comply with Cloud Run requirements
+- Port is dynamically set via `${PORT:-8080}` in the Dockerfile to comply with Cloud Run requirements
+- The backend needs more than Cloud Run's 512 MiB default during startup; deploy it with at least `--memory 1Gi`

@@ -1,15 +1,12 @@
 export function Header() {
   return (
-    <header className="text-center mb-10 animate-fade-in-down">
-      <div className="text-xs font-medium tracking-[0.25em] uppercase text-text-muted mb-3">
-        Singapore Sign Language
+    <header className="text-center mb-8 animate-fade-in-down">
+      <div className="text-[10px] font-medium tracking-[0.3em] uppercase text-text-muted mb-2">
+        Singapore Sign Language Translator
       </div>
-      <h1 className="font-serif text-[clamp(2.5rem,7vw,4.5rem)] font-semibold text-text-primary tracking-tight leading-none">
+      <h1 className="font-serif text-[clamp(2.8rem,8vw,5rem)] font-bold text-text-primary tracking-tight leading-none">
         un<span className="text-gradient">mute</span>
       </h1>
-      <p className="font-sans text-base text-text-secondary mt-3 font-normal">
-        Translate words into signs, effortlessly
-      </p>
     </header>
   )
 }

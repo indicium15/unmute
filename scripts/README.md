@@ -1,6 +1,6 @@
 # Scripts
 
-Utilities for building the sign-language vocabulary and preprocessing SGSL GIFs with MediaPipe (hands + pose). Run them from the **repository root** with your Python environment (dependencies include `mediapipe`, `numpy`, Pillow; see `backend/requirements.txt` or install as needed).
+Utilities for building the sign-language vocabulary and preprocessing SGSL GIFs with MediaPipe (hands + pose). Run them from the **repository root** after installing the backend environment with `cd backend && uv sync`.
 
 ## `build_vocab_from_json.py`
 

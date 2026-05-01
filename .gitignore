@@ -15,4 +15,6 @@ firebase-key.json
 .DS_Store
 dataset/
 CLAUDE.md
+AGENTS.md
+dev.sh
 .github/

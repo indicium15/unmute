@@ -1,36 +1,68 @@
 import { useState, useCallback, useEffect } from "react"
-import { Header } from "@/components/Header"
 import { InputPanel } from "@/components/InputPanel"
 import { OutputPanel } from "@/components/OutputPanel"
-import { VideoCall } from "@/components/VideoCall"
 import { LoginPage } from "@/components/LoginPage"
 import { AdminPage } from "@/components/AdminPage"
+import { LearningPage } from "@/components/LearningPage"
+import { AboutPage } from "@/components/AboutPage"
+import { ReleaseNotesPage } from "@/components/ReleaseNotesPage"
 import { useTranslation, type TranslationResult } from "@/hooks/useTranslation"
 import { useSignPlayback } from "@/hooks/useSignPlayback"
-import { useAuth } from "@/contexts/AuthContext"
-import type { AvatarController } from "@/lib/avatar-controller"
+import { useAuth } from "@/contexts/useAuth"
 import { Button } from "@/components/ui/button"
-import { Video, MessageSquare, LogOut, Shield } from "lucide-react"
+import { MessageSquare, LogOut, Shield, GraduationCap, Info, Github, Newspaper } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+const GITHUB_URL = "https://github.com/indicium15/unmute"
 
-type AppMode = "translate" | "video" | "admin"
+type AppMode = "translate" | "learn" | "release-notes" | "about" | "admin"
+
+const NAV_ITEMS = [
+  { mode: "translate" as AppMode, path: "/translate", label: "Translate", Icon: MessageSquare },
+  { mode: "learn" as AppMode, path: "/learn", label: "Learn", Icon: GraduationCap },
+  { mode: "release-notes" as AppMode, path: "/release-notes", label: "Release Notes", Icon: Newspaper },
+  { mode: "about" as AppMode, path: "/about", label: "About", Icon: Info },
+]
+
+function modeFromPath(pathname: string): AppMode {
+  const mode = NAV_ITEMS.find((item) => item.path === pathname)?.mode
+  if (mode) return mode
+  if (pathname === "/admin") return "admin"
+  return "translate"
+}
+
+function pathForMode(mode: AppMode) {
+  if (mode === "admin") return "/admin"
+  return NAV_ITEMS.find((item) => item.mode === mode)?.path ?? "/translate"
+}
+
+function isKnownPath(pathname: string) {
+  return pathname === "/admin" || NAV_ITEMS.some((item) => item.path === pathname)
+}
 
 function App() {
   const { user, loading, logout } = useAuth()
-  const [mode, setMode] = useState<AppMode>("translate")
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [avatar, setAvatar] = useState<AvatarController | null>(null)
-  const { result, setResult, isLoading, translate } = useTranslation()
-  const { isPlaying, currentToken, currentGifUrl, playSequence, stopPlayback } = useSignPlayback({ avatar })
+  const [mode, setModeState] = useState<AppMode>(() => modeFromPath(window.location.pathname))
+  const [_isAdmin, setIsAdmin] = useState(false)
+  // Derive so we never need to call setState synchronously inside an effect
+  const isAdmin = user ? _isAdmin : false
+  const effectiveMode: AppMode = mode === "admin" && !isAdmin ? "translate" : mode
+  const { result, setResult, isLoading, error, translate } = useTranslation()
+  const { isPlaying, currentToken, currentGifUrl, currentPlaybackKey, playSequence, stopPlayback } = useSignPlayback()
 
-  // Check admin status whenever the authenticated user changes
   useEffect(() => {
-    if (!user) {
-      setIsAdmin(false)
-      if (mode === "admin") setMode("translate")
-      return
+    if (window.location.pathname === "/" || !isKnownPath(window.location.pathname)) {
+      window.history.replaceState(null, "", "/translate")
     }
+
+    const handlePopState = () => setModeState(modeFromPath(window.location.pathname))
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
     user.getIdToken().then((token) =>
       fetch(`${API_BASE_URL}/api/admin/check`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -38,7 +70,7 @@ function App() {
     ).then((r) => r.json())
      .then((data: { is_admin?: boolean }) => setIsAdmin(data.is_admin === true))
      .catch(() => setIsAdmin(false))
-  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user])
 
   const handleTranslate = useCallback(async (text: string) => {
     stopPlayback()
@@ -46,6 +78,7 @@ function App() {
     if (translationResult && translationResult.plan.length > 0) {
       playSequence(translationResult.plan)
     }
+    return translationResult
   }, [translate, playSequence, stopPlayback])
 
   const handleVoiceResult = useCallback((voiceResult: TranslationResult) => {
@@ -57,114 +90,150 @@ function App() {
   }, [setResult, playSequence, stopPlayback])
 
   const handleReplay = useCallback(() => {
-    if (result && result.plan.length > 0) {
-      playSequence(result.plan)
-    }
+    if (result && result.plan.length > 0) playSequence(result.plan)
   }, [result, playSequence])
 
-  const handleAvatarReady = useCallback((controller: AvatarController) => {
-    setAvatar(controller)
-  }, [])
+  const navItems = isAdmin
+    ? [...NAV_ITEMS, { mode: "admin" as AppMode, path: "/admin", label: "Admin", Icon: Shield }]
+    : NAV_ITEMS
 
-  // Auto-play when result changes
-  useEffect(() => {
-    if (result && result.plan.length > 0 && avatar && !isPlaying) {
-      // Only auto-play if not already playing (avoid duplicate plays)
+  const isActiveMode = (m: AppMode) => m === effectiveMode
+  const setMode = (nextMode: AppMode) => {
+    const nextPath = pathForMode(nextMode)
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState(null, "", nextPath)
     }
-  }, [result, avatar, isPlaying])
+    setModeState(nextMode)
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-warm)]">
-        <p className="text-text-muted text-sm">Loading...</p>
+      <div className="min-h-screen flex items-center justify-center bg-bg-warm">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-accent-terracotta border-t-transparent animate-spin" />
+          <p className="text-text-muted text-sm">Loading…</p>
+        </div>
       </div>
     )
   }
 
-  if (!user) {
-    return <LoginPage />
-  }
+  if (!user) return <LoginPage />
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-12 px-6 max-w-[1400px] mx-auto w-full">
-      <Header />
-      
-      {/* Mode Switcher + Logout */}
-      <div className="flex items-center gap-4 mb-8 animate-fade-in" style={{ animationDelay: "0.1s" }}>
-      <div className="inline-flex gap-1.5 p-1.5 bg-[var(--bg-cream)] rounded-[20px] border border-[var(--border-soft)]">
-        <Button
-          variant="ghost"
-          onClick={() => setMode("translate")}
-          className={mode === "translate"
-            ? "bg-bg-card text-accent-terracotta shadow-soft font-medium px-6 py-3.5 rounded-[14px]"
-            : "text-text-secondary hover:text-text-primary hover:bg-white/50 px-6 py-3.5 rounded-[14px]"
-          }
-        >
-          <MessageSquare className="w-5 h-5 mr-2" />
-          Translate
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => setMode("video")}
-          className={mode === "video"
-            ? "bg-bg-card text-accent-terracotta shadow-soft font-medium px-6 py-3.5 rounded-[14px]"
-            : "text-text-secondary hover:text-text-primary hover:bg-white/50 px-6 py-3.5 rounded-[14px]"
-          }
-        >
-          <Video className="w-5 h-5 mr-2" />
-          Video Call
-        </Button>
-        {isAdmin && (
-          <Button
-            variant="ghost"
-            onClick={() => setMode("admin")}
-            className={mode === "admin"
-              ? "bg-bg-card text-accent-terracotta shadow-soft font-medium px-6 py-3.5 rounded-[14px]"
-              : "text-text-secondary hover:text-text-primary hover:bg-white/50 px-6 py-3.5 rounded-[14px]"
-            }
-          >
-            <Shield className="w-5 h-5 mr-2" />
-            Admin
-          </Button>
-        )}
-      </div>
-      <Button
-        variant="ghost"
-        onClick={logout}
-        className="text-text-muted hover:text-text-secondary px-3 py-3.5 rounded-[14px]"
-        title="Sign out"
-      >
-        <LogOut className="w-4 h-4" />
-      </Button>
+    <div className="min-h-screen flex flex-col bg-bg-warm">
+      <div className="sticky top-0 z-40 bg-bg-warm/90 backdrop-blur-md border-b border-border-soft">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+          <span className="font-serif text-2xl font-bold leading-none flex-shrink-0">
+            un<span className="text-gradient">mute</span>
+          </span>
+
+          <nav className="hidden sm:flex items-center gap-1 p-1 bg-bg-input rounded-[14px] border border-border-soft">
+            {navItems.map(({ mode: m, label, Icon }) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={cn(
+                  "inline-flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-medium transition-all duration-200",
+                  isActiveMode(m)
+                    ? "bg-bg-card text-accent-terracotta shadow-[0_1px_8px_rgba(0,0,0,0.4)]"
+                    : "text-text-muted hover:text-text-secondary hover:bg-bg-card/50"
+                )}
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] text-text-muted hover:text-text-secondary hover:bg-bg-input transition-all duration-200"
+              title="View on GitHub"
+            >
+              <Github className="w-4 h-4" />
+            </a>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={logout}
+              title="Sign out"
+              className="text-text-muted hover:text-text-secondary w-9 h-9"
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
       </div>
 
-      {mode === "translate" ? (
-        <main className="w-full grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-8 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
-          <InputPanel
-            onTranslate={handleTranslate}
-            onVoiceResult={handleVoiceResult}
-            isLoading={isLoading}
-            result={result}
-          />
-          <OutputPanel
-            plan={result?.plan || []}
-            currentToken={currentToken}
-            currentGifUrl={currentGifUrl}
-            isPlaying={isPlaying}
-            onReplay={handleReplay}
-            onAvatarReady={handleAvatarReady}
-            logDocId={result?.log_doc_id}
-          />
-        </main>
-      ) : mode === "video" ? (
-        <main className="w-full max-w-6xl animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
-          <VideoCall />
-        </main>
-      ) : (
-        <main className="w-full max-w-6xl">
-          <AdminPage />
-        </main>
-      )}
+      <main className="flex-1 max-w-[1440px] mx-auto w-full px-4 sm:px-6 pt-5 pb-24 sm:pb-8">
+        {effectiveMode === "translate" && (
+          <div className="animate-fade-in-up">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+              <InputPanel
+                onTranslate={handleTranslate}
+                onVoiceResult={handleVoiceResult}
+                isLoading={isLoading}
+                error={error}
+                result={result}
+              />
+              <OutputPanel
+                plan={result?.plan || []}
+                currentToken={currentToken}
+                currentGifUrl={currentGifUrl}
+                currentPlaybackKey={currentPlaybackKey}
+                isPlaying={isPlaying}
+                onReplay={handleReplay}
+                logDocId={result?.log_doc_id}
+              />
+            </div>
+          </div>
+        )}
+
+        {effectiveMode === "learn" && (
+          <div className="animate-fade-in-up">
+            <LearningPage />
+          </div>
+        )}
+
+        {effectiveMode === "about" && (
+          <div className="animate-fade-in-up">
+            <AboutPage />
+          </div>
+        )}
+
+        {effectiveMode === "release-notes" && (
+          <div className="animate-fade-in-up">
+            <ReleaseNotesPage />
+          </div>
+        )}
+
+        {effectiveMode === "admin" && (
+          <div className="animate-fade-in-up">
+            <AdminPage />
+          </div>
+        )}
+      </main>
+
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-50 bg-bg-card/95 backdrop-blur-md border-t border-border-soft">
+        <div className="flex overflow-x-auto">
+          {navItems.map(({ mode: m, label, Icon }) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={cn(
+                "min-w-[72px] flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-all duration-200",
+                isActiveMode(m) ? "text-accent-terracotta" : "text-text-muted"
+              )}
+            >
+              <Icon className={cn("w-5 h-5 transition-transform duration-200", isActiveMode(m) && "scale-110")} />
+              <span className="text-[10px] font-medium tracking-wide">{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
     </div>
   )
 }

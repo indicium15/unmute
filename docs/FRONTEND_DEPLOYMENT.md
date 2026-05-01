@@ -5,7 +5,7 @@
 - Google Cloud / Firebase project: `unmute-c9757` (same project as the backend)
 - Node.js 20+ and npm (or another compatible package manager)
 - `firebase-tools` installed globally: `npm install -g firebase-tools`
-- A deployed backend URL (see [BACKEND_DEPLOYMENT.md](./BACKEND_DEPLOYMENT.md)) — you will point the SPA at that API and WebSocket endpoint at **build time**
+- A deployed backend URL (see [BACKEND_DEPLOYMENT.md](./BACKEND_DEPLOYMENT.md)) — you will point the SPA at that API at **build time**
 
 ## One-time Setup
 
@@ -52,7 +52,6 @@ Example **inline** build (replace placeholders with your real values):
 
 ```bash
 VITE_API_BASE_URL=https://YOUR-CLOUD-RUN-URL \
-VITE_WS_BASE_URL=wss://YOUR-CLOUD-RUN-HOST \
 VITE_FIREBASE_API_KEY=... \
 VITE_FIREBASE_AUTH_DOMAIN=unmute-c9757.firebaseapp.com \
 VITE_FIREBASE_PROJECT_ID=unmute-c9757 \
@@ -62,7 +61,7 @@ VITE_FIREBASE_APP_ID=... \
 npm run build
 ```
 
-Use `https://` for `VITE_API_BASE_URL` and `wss://` for `VITE_WS_BASE_URL` when the site is served over HTTPS (required for WebSockets on a production domain).
+Use `https://` for `VITE_API_BASE_URL` when the site is served over HTTPS.
 
 2. **Deploy Hosting**
 
@@ -87,7 +86,6 @@ Rebuild whenever you change code or any `VITE_*` value — Vite does not read en
 | Variable | Purpose |
 |---|---|
 | `VITE_API_BASE_URL` | Backend HTTP API base URL (e.g. Cloud Run `https://...run.app`) |
-| `VITE_WS_BASE_URL` | WebSocket base URL (`wss://` in production) |
 | `VITE_FIREBASE_API_KEY` | Firebase web API key |
 | `VITE_FIREBASE_AUTH_DOMAIN` | Firebase Auth domain (often `PROJECT_ID.firebaseapp.com`) |
 | `VITE_FIREBASE_PROJECT_ID` | Firebase project ID (`unmute-c9757`) |
@@ -101,5 +99,4 @@ For local development and env file precedence, see [frontend/ENV_README.md](./fr
 
 - Never commit `.env`, `.env.local`, or `.env.production.local` if they contain values you want to keep private.
 - `VITE_*` variables are embedded at **build** time; changing them requires a new `npm run build` and redeploy.
-- The production site is HTTPS; use `wss://` for WebSockets or connections will fail.
 - Firebase Hosting serves the SPA; API keys in the client bundle are normal for Firebase web apps — protect resources with Firebase Security Rules and backend auth as appropriate.

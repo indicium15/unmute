@@ -43,8 +43,8 @@ The dataset contains over 1,100 words and 1,307 signs from the Singapore Sign La
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- pip (Python package manager)
+- Python 3.11 or higher
+- uv (Python package and environment manager)
 - A Google Gemini API key 
 
 ### Installation
@@ -55,25 +55,14 @@ The dataset contains over 1,100 words and 1,307 signs from the Singapore Sign La
    cd singapore-sign-language
    ```
 
-2. **Create a virtual environment**
-   ```bash
-   python -m venv venv
-   
-   # On macOS/Linux:
-   source venv/bin/activate
-   
-   # On Windows:
-   venv\Scripts\activate
-   ```
-
-3. **Install backend dependencies**
+2. **Install backend dependencies**
    ```bash
    cd backend
-   pip install -r requirements.txt
+   uv sync
    cd ..
    ```
 
-4. **Set up environment variables**
+3. **Set up environment variables**
    
    Create a `.env` file in the `backend/` directory:
    ```bash
@@ -84,7 +73,7 @@ The dataset contains over 1,100 words and 1,307 signs from the Singapore Sign La
    
    Replace `your_api_key_here` with your actual Google Gemini API key.
 
-5. **Prepare the dataset**
+4. **Prepare the dataset**
    
    The application expects processed sign language data in the following structure:
    ```
@@ -110,7 +99,7 @@ The dataset contains over 1,100 words and 1,307 signs from the Singapore Sign La
    ```bash
    # From the project root
    cd backend
-   uvicorn app:app --reload --host 0.0.0.0 --port 8000
+   uv run uvicorn app:app --reload --host 0.0.0.0 --port 8000
    ```
 
 2. **Access the application**
@@ -174,7 +163,9 @@ singapore-sign-language/
 │   ├── sign_seq.py            # Sign sequence manager
 │   ├── hand_embedder.py       # Hand landmark extraction
 │   ├── aliases.json           # Sign name aliases
-│   └── requirements.txt       # Python dependencies
+│   ├── pyproject.toml         # Backend Python dependencies for uv
+│   ├── uv.lock                # Locked backend dependency graph
+│   └── requirements.txt       # Legacy dependency list
 ├── frontend/
 │   ├── index.html             # Main HTML interface
 │   ├── script.js              # Frontend JavaScript logic

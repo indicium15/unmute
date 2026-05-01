@@ -12,7 +12,6 @@ This guide explains how to configure environment variables for the Unmute fronte
 2. **Edit `.env` with your backend URL:**
    ```env
    VITE_API_BASE_URL=http://127.0.0.1:8000
-   VITE_WS_BASE_URL=ws://127.0.0.1:8000
    ```
 
 3. **Restart the dev server** (environment variables are loaded at build time)
@@ -27,32 +26,21 @@ This guide explains how to configure environment variables for the Unmute fronte
   - Docker: `http://localhost:8000`
   - Production: `https://api.yourdomain.com`
 
-### `VITE_WS_BASE_URL`
-- **Description:** Base URL for WebSocket connections
-- **Default:** `ws://127.0.0.1:8000`
-- **Examples:**
-  - Local: `ws://127.0.0.1:8000`
-  - Docker: `ws://localhost:8000`
-  - Production: `wss://api.yourdomain.com`
-
 ## Configuration for Different Environments
 
 ### Local Development
 ```env
 VITE_API_BASE_URL=http://127.0.0.1:8000
-VITE_WS_BASE_URL=ws://127.0.0.1:8000
 ```
 
 ### Docker Setup
 ```env
 VITE_API_BASE_URL=http://localhost:8000
-VITE_WS_BASE_URL=ws://localhost:8000
 ```
 
 ### Production
 ```env
 VITE_API_BASE_URL=https://api.yourdomain.com
-VITE_WS_BASE_URL=wss://api.yourdomain.com
 ```
 
 ## Important Notes
@@ -98,16 +86,11 @@ Vite loads environment files in this order (higher priority first):
 - Clear Vite cache: `rm -rf node_modules/.vite`
 - Rebuild: `npm run build`
 
-### WebSocket connection failing?
-- Ensure `VITE_WS_BASE_URL` uses `ws://` (not `http://`)
-- For HTTPS sites, use `wss://` (not `ws://`)
-
 ## Usage in Code
 
 ```typescript
 // Access environment variables
 const apiUrl = import.meta.env.VITE_API_BASE_URL
-const wsUrl = import.meta.env.VITE_WS_BASE_URL
 
 // With fallback
 const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
@@ -122,7 +105,6 @@ Add type definitions in `src/vite-env.d.ts`:
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string
-  readonly VITE_WS_BASE_URL: string
 }
 
 interface ImportMeta {

@@ -1,6 +1,6 @@
 # Docker Setup for Unmute Backend
 
-This guide explains how to run the Unmute backend using Docker.
+This guide explains how to run the Unmute backend using Docker. The backend image installs Python dependencies with `uv`.
 
 ## Prerequisites
 
@@ -55,6 +55,7 @@ docker build -t unmute-backend .
 docker run -d \
   --name unmute-backend \
   -p 8000:8000 \
+  -e PORT=8000 \
   -e GEMINI_API_KEY=your_api_key_here \
   -v "$(pwd)/backend:/app/backend" \
   -v "$(pwd)/sgsl_dataset:/app/sgsl_dataset:ro" \
@@ -67,6 +68,7 @@ docker run -d \
 docker run -it \
   --name unmute-backend \
   -p 8000:8000 \
+  -e PORT=8000 \
   -e GEMINI_API_KEY=your_api_key_here \
   -v "$(pwd)/backend:/app/backend" \
   -v "$(pwd)/sgsl_dataset:/app/sgsl_dataset:ro" \
@@ -79,6 +81,7 @@ docker run -it \
 docker run -d \
   --name unmute-backend \
   -p 8000:8000 \
+  -e PORT=8000 \
   --env-file backend/.env \
   -v "$(pwd)/backend:/app/backend" \
   -v "$(pwd)/sgsl_dataset:/app/sgsl_dataset:ro" \
@@ -124,6 +127,7 @@ docker build -t unmute-backend .
 docker run -d \
   --name unmute-backend \
   -p 8000:8000 \
+  -e PORT=8000 \
   -e GEMINI_API_KEY=your_api_key_here \
   -v $(pwd)/sgsl_dataset:/app/sgsl_dataset:ro \
   -v $(pwd)/sgsl_processed:/app/sgsl_processed:ro \
@@ -156,7 +160,7 @@ Once running, you can access:
 For development with hot reload, uncomment the `command` override in `docker-compose.yml`:
 
 ```yaml
-command: uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
+command: uv run uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Then run:
