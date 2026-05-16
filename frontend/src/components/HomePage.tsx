@@ -2,7 +2,9 @@ import { useState } from "react"
 
 interface HomePageProps {
   onNavigate: (mode: "translate" | "learn" | "dictionary") => void
-  onSignIn: () => void
+  onSignIn?: () => void
+  onTranslate?: (text: string) => void
+  onLogout?: () => void
 }
 
 const SUGGESTED_PHRASES = [
@@ -14,16 +16,24 @@ const SUGGESTED_PHRASES = [
   "Good morning everyone",
 ]
 
-export function HomePage({ onNavigate, onSignIn }: HomePageProps) {
+export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePageProps) {
   const [inputText, setInputText] = useState("")
 
   const handleTranslate = () => {
-    onNavigate("translate")
+    if (onTranslate) {
+      onTranslate(inputText.trim())
+    } else {
+      onNavigate("translate")
+    }
   }
 
   const handlePhrase = (phrase: string) => {
-    setInputText(phrase)
-    onNavigate("translate")
+    if (onTranslate) {
+      onTranslate(phrase)
+    } else {
+      setInputText(phrase)
+      onNavigate("translate")
+    }
   }
 
   return (
@@ -61,12 +71,21 @@ export function HomePage({ onNavigate, onSignIn }: HomePageProps) {
             </button>
           </div>
 
-          <button
-            onClick={onSignIn}
-            className="px-4 py-2 rounded-[10px] text-[14px] font-medium text-[#6176f7] border border-[#6176f7] hover:bg-[#6176f7] hover:text-white transition-colors"
-          >
-            Sign In
-          </button>
+          {onLogout ? (
+            <button
+              onClick={onLogout}
+              className="px-4 py-2 rounded-[10px] text-[14px] font-medium text-[#6a7282] hover:text-[#4a5565] hover:bg-gray-100 transition-colors"
+            >
+              Sign out
+            </button>
+          ) : onSignIn ? (
+            <button
+              onClick={onSignIn}
+              className="px-4 py-2 rounded-[10px] text-[14px] font-medium text-[#6176f7] border border-[#6176f7] hover:bg-[#6176f7] hover:text-white transition-colors"
+            >
+              Sign In
+            </button>
+          ) : null}
         </div>
       </nav>
 
@@ -120,7 +139,7 @@ export function HomePage({ onNavigate, onSignIn }: HomePageProps) {
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleTranslate()}
+              onKeyDown={(e) => { if (e.key === "Enter") handleTranslate() }}
               placeholder="Type a word or phrase (e.g. Hello my name is...)"
               className="flex-1 text-[16px] text-[#6a7282] placeholder:text-[#99a1af] outline-none bg-transparent min-w-0"
             />

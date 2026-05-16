@@ -7,6 +7,7 @@ import { LearningPage } from "@/components/LearningPage"
 import { AboutPage } from "@/components/AboutPage"
 import { ReleaseNotesPage } from "@/components/ReleaseNotesPage"
 import { DictionaryPage } from "@/components/DictionaryPage"
+import { HomePage } from "@/components/HomePage"
 import { useTranslation, type TranslationResult } from "@/hooks/useTranslation"
 import { useSignPlayback } from "@/hooks/useSignPlayback"
 import { useAuth } from "@/contexts/useAuth"
@@ -48,6 +49,7 @@ function App() {
   const effectiveMode: AppMode = mode === "admin" && !isAdmin ? "translate" : mode
   const { result, setResult, isLoading, error, translate } = useTranslation()
   const { isPlaying, currentToken, currentGifUrl, currentPlaybackKey, playSequence, stopPlayback } = useSignPlayback()
+  const [hasAttemptedTranslation, setHasAttemptedTranslation] = useState(false)
 
   useEffect(() => {
     if (window.location.pathname === "/" || !isKnownPath(window.location.pathname)) {
@@ -66,6 +68,16 @@ function App() {
       playSequence(translationResult.plan)
     }
     return translationResult
+  }, [translate, playSequence, stopPlayback])
+
+  const handleLandingTranslate = useCallback(async (text: string) => {
+    setHasAttemptedTranslation(true)
+    if (!text) return
+    stopPlayback()
+    const translationResult = await translate(text)
+    if (translationResult && translationResult.plan.length > 0) {
+      playSequence(translationResult.plan)
+    }
   }, [translate, playSequence, stopPlayback])
 
   const handleVoiceResult = useCallback((voiceResult: TranslationResult) => {
@@ -89,6 +101,9 @@ function App() {
     const nextPath = pathForMode(nextMode)
     if (window.location.pathname !== nextPath) {
       window.history.pushState(null, "", nextPath)
+    }
+    if (nextMode !== "translate") {
+      setHasAttemptedTranslation(false)
     }
     setModeState(nextMode)
   }
@@ -164,6 +179,16 @@ function App() {
           else setMode(dest)
         }}
         onSignOut={logout}
+      />
+    )
+  }
+
+  if (effectiveMode === "translate" && !hasAttemptedTranslation) {
+    return (
+      <HomePage
+        onNavigate={(dest) => setMode(dest)}
+        onTranslate={handleLandingTranslate}
+        onLogout={logout}
       />
     )
   }
