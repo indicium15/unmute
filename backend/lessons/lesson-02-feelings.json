@@ -1,8 +1,0 @@
-{
-  "lesson_id": "lesson-02-feelings",
-  "lesson_name": "Feelings & Emotions",
-  "description": "Express how you feel — from happiness and love to anger and fear.",
-  "emoji": "😊",
-  "order": 2,
-  "tokens": ["HAPPY", "CRY", "ANGRY", "TIRED", "SCARED_A", "LAUGH", "LOVE", "HATE"]
-}

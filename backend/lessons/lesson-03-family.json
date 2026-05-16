@@ -1,8 +1,0 @@
-{
-  "lesson_id": "lesson-03-family",
-  "lesson_name": "Family & People",
-  "description": "Signs for family members and the people closest to you.",
-  "emoji": "👨‍👩‍👧‍👦",
-  "order": 3,
-  "tokens": ["FAMILY", "MOTHER", "FATHER", "BROTHER", "SISTER", "GRANDFATHER", "GRANDMOTHER", "FRIEND"]
-}

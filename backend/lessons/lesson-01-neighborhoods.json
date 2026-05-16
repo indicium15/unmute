@@ -1,0 +1,8 @@
+{
+  "lesson_id": "lesson-01-neighborhoods",
+  "lesson_name": "Neighborhoods in Singapore",
+  "description": "Learn the signs for popular neighborhoods and towns across Singapore.",
+  "emoji": "🗺️",
+  "order": 1,
+  "tokens": ["BEDOK_PLACE", "TAMPINES_PLACE", "ORCHARD_PLACE", "WOODLANDS_PLACE", "YISHUN_PLACE", "ANG_MO_KIO_PLACE", "TOA_PAYOH_PLACE", "BISHAN_PLACE", "CLEMENTI_PLACE", "JURONG_EAST_PLACE", "QUEENSTOWN_PLACE", "TIONG_BAHRU_PLACE"]
+}

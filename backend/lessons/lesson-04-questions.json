@@ -1,8 +1,0 @@
-{
-  "lesson_id": "lesson-04-questions",
-  "lesson_name": "Question Words",
-  "description": "Ask who, what, when, where, why, and how in Singapore Sign Language.",
-  "emoji": "❓",
-  "order": 4,
-  "tokens": ["WHO_A", "WHAT_A", "WHEN", "WHERE", "WHY", "HOW", "HOW_MUCH", "NAME"]
-}

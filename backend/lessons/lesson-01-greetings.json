@@ -1,8 +1,0 @@
-{
-  "lesson_id": "lesson-01-greetings",
-  "lesson_name": "Greetings & Basics",
-  "description": "Essential signs for everyday interactions — saying hello, please, and yes or no.",
-  "emoji": "👋",
-  "order": 1,
-  "tokens": ["GOOD_A", "MORNINGB", "AFTERNOON", "EVENING", "NIGHT", "PLEASE", "YES_A", "NO", "HELP_VERB"]
-}

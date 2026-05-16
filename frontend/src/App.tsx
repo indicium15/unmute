@@ -183,6 +183,18 @@ function App() {
     )
   }
 
+  if (effectiveMode === "learn") {
+    return (
+      <LearningPage
+        onNavigate={(dest) => {
+          if (dest === "home") setMode("translate")
+          else setMode(dest)
+        }}
+        onSignOut={logout}
+      />
+    )
+  }
+
   if (effectiveMode === "translate" && !hasAttemptedTranslation) {
     return (
       <HomePage
@@ -267,12 +279,6 @@ function App() {
                 logDocId={result?.log_doc_id}
               />
             </div>
-          </div>
-        )}
-
-        {effectiveMode === "learn" && (
-          <div className="animate-fade-in-up">
-            <LearningPage />
           </div>
         )}
 

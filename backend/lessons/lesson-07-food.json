@@ -1,8 +1,0 @@
-{
-  "lesson_id": "lesson-07-food",
-  "lesson_name": "Food & Drink",
-  "description": "Signs for common foods, drinks, and related feelings like hunger and thirst.",
-  "emoji": "🍚",
-  "order": 7,
-  "tokens": ["FOOD", "RICE", "BREAD", "FRUIT", "APPLE", "FISH", "MEAT", "MILK_NOUN", "EATO", "DRINKA", "WATER", "HUNGRY", "THIRSTYB"]
-}
