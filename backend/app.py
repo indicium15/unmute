@@ -4,15 +4,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
+import json
+import pathlib
 
 import random
 
 from vocab import vocab
-from gemini_client import GeminiClient
+from llm_client import LLMClient
 from planner import build_render_plan
 from sign_seq import SignSequenceManager
 from gcs_storage import USE_GCS, get_dataset_info, get_static_url, GCS_SGLS_DATASET_ROOT
-from auth import verify_token
+from auth import verify_token, verify_approved_token
 import database
 
 app = FastAPI()
@@ -43,7 +45,15 @@ else:
 
 
 # Components
-gemini = GeminiClient()
+def _make_llm_client() -> LLMClient:
+    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+    if provider == "gemini":
+        from gemini_client import GeminiClient
+        return GeminiClient()
+    from openai_client import OpenAIClient
+    return OpenAIClient()
+
+gemini = _make_llm_client()
 sign_mgr = SignSequenceManager()
 
 class GlossRequest(BaseModel):
@@ -64,6 +74,42 @@ class TranslateResponse(BaseModel):
     detected_language: Optional[str] = None
     log_doc_id: Optional[str] = None  # Firestore doc ID for feedback linkage
 
+class LessonSign(BaseModel):
+    token: str
+    sign_name: Optional[str]
+    gif_url: str
+
+class LessonSummary(BaseModel):
+    lesson_id: str
+    lesson_name: str
+    description: str
+    emoji: str
+    sign_count: int
+
+class LessonDetail(BaseModel):
+    lesson_id: str
+    lesson_name: str
+    description: str
+    emoji: str
+    signs: List[LessonSign]
+
+# ── Lesson loader ─────────────────────────────────────────────────────────────
+_LESSONS_DIR = pathlib.Path(__file__).parent / "lessons"
+
+def _load_lessons() -> list:
+    lessons = []
+    for path in sorted(_LESSONS_DIR.glob("*.json")):
+        with open(path, "r", encoding="utf-8") as f:
+            lesson = json.load(f)
+        for token in lesson.get("tokens", []):
+            if not vocab.validate_token(token):
+                print(f"[Lessons] WARNING: unknown token '{token}' in '{path.name}'")
+        lessons.append(lesson)
+    lessons.sort(key=lambda l: (l.get("order", 999), l.get("lesson_id", "")))
+    return lessons
+
+_lessons: list = _load_lessons()
+
 @app.get("/health")
 def health():
     storage_info = get_dataset_info()
@@ -74,7 +120,7 @@ def health():
     }
 
 @app.post("/api/translate", response_model=TranslateResponse)
-def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_token)):
+def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_approved_token)):
     # 1. Text to Gloss (Gemini) with language support
     print(f"Translating: {req.text} (language: {req.language or 'auto-detect'})")
     gloss_result = gemini.text_to_gloss(req.text, language=req.language)
@@ -118,7 +164,7 @@ def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict =
     }
 
 @app.get("/api/sign/{sign_name}/landmarks")
-def get_landmarks(sign_name: str, _user: dict = Depends(verify_token)):
+def get_landmarks(sign_name: str, _user: dict = Depends(verify_approved_token)):
     """Return 3D full-body pose landmark frames for a sign."""
     pose_data = sign_mgr.get_sign_full_body_pose_frames(sign_name)
     
@@ -152,7 +198,7 @@ class TranscribeResponse(BaseModel):
 
 
 @app.post("/api/transcribe")
-async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_token)):
+async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_approved_token)):
     """
     Transcribe audio to text using Gemini Live API with automatic VAD.
     Supports multiple languages: English, Chinese, Malay, Tamil, and others.
@@ -250,7 +296,7 @@ def get_learning_signs(
     q: str = "",
     limit: int = 48,
     offset: int = 0,
-    _user: dict = Depends(verify_token),
+    _user: dict = Depends(verify_approved_token),
 ):
     """Return searchable sign vocabulary items for the learning experience."""
     if not (1 <= limit <= 100):
@@ -277,7 +323,7 @@ def get_learning_signs(
 
 
 @app.get("/api/learning/quiz")
-def get_quiz(_user: dict = Depends(verify_token)):
+def get_quiz(_user: dict = Depends(verify_approved_token)):
     """Return a random sign GIF and 4 multiple-choice token options (1 correct, 3 wrong)."""
     tokens = vocab.get_allowed_tokens()
     if len(tokens) < 4:
@@ -300,6 +346,47 @@ def get_quiz(_user: dict = Depends(verify_token)):
     }
 
 
+# ── Lessons endpoints ─────────────────────────────────────────────────────────
+
+@app.get("/api/learning/lessons", response_model=List[LessonSummary])
+def get_lessons(_user: dict = Depends(verify_approved_token)):
+    """Return all lesson summaries (metadata + sign count, no GIF data)."""
+    return [
+        {
+            "lesson_id": lesson["lesson_id"],
+            "lesson_name": lesson["lesson_name"],
+            "description": lesson["description"],
+            "emoji": lesson.get("emoji", "📖"),
+            "sign_count": len(lesson.get("tokens", [])),
+        }
+        for lesson in _lessons
+    ]
+
+
+@app.get("/api/learning/lessons/{lesson_id}", response_model=LessonDetail)
+def get_lesson(lesson_id: str, _user: dict = Depends(verify_approved_token)):
+    """Return full lesson detail with resolved GIF URLs for all signs."""
+    lesson = next((l for l in _lessons if l["lesson_id"] == lesson_id), None)
+    if not lesson:
+        raise HTTPException(status_code=404, detail=f"Lesson '{lesson_id}' not found")
+
+    signs = []
+    for token in lesson.get("tokens", []):
+        item = _learning_sign_item(token)
+        if item:
+            signs.append(item)
+        else:
+            print(f"[Lessons] Skipping unresolvable token '{token}' in '{lesson_id}'")
+
+    return {
+        "lesson_id": lesson["lesson_id"],
+        "lesson_name": lesson["lesson_name"],
+        "description": lesson["description"],
+        "emoji": lesson.get("emoji", "📖"),
+        "signs": signs,
+    }
+
+
 # ── Feedback endpoint ─────────────────────────────────────────────────────────
 
 class FeedbackRequest(BaseModel):
@@ -309,7 +396,7 @@ class FeedbackRequest(BaseModel):
 
 
 @app.post("/api/feedback")
-def submit_feedback(req: FeedbackRequest, user: dict = Depends(verify_token)):
+def submit_feedback(req: FeedbackRequest, user: dict = Depends(verify_approved_token)):
     """Store a thumbs-up / thumbs-down rating (with optional comment) for a
     translation.  The ``log_doc_id`` links the feedback to the original entry
     in *translation_logs*.
@@ -331,10 +418,36 @@ def submit_feedback(req: FeedbackRequest, user: dict = Depends(verify_token)):
 
 # ── Admin endpoints ───────────────────────────────────────────────────────────
 
+@app.post("/api/auth/register")
+def register_user(user: dict = Depends(verify_token)):
+    """Register a new user (or return their existing status). No approval required.
+
+    Called by the frontend after Firebase signup/login to sync the user record
+    and get back their current approval status. Rejects emails not on the allowlist
+    (unless the user has the admin custom claim).
+    """
+    uid = user.get("uid")
+    email = user.get("email")
+    is_admin_user = user.get("admin") is True
+
+    if not is_admin_user:
+        if not email or not database.is_email_allowed(email):
+            raise HTTPException(
+                status_code=403,
+                detail="Your email is not authorized to access this app.",
+            )
+
+    result = database.register_user(uid, email, initial_status="approved")
+    return {
+        "status": result["status"],
+        "is_admin": is_admin_user,
+    }
+
+
 @app.get("/api/admin/check")
 def admin_check(user: dict = Depends(verify_token)):
     """Return whether the authenticated user has admin privileges."""
-    return {"is_admin": database.is_admin(user.get("uid"))}
+    return {"is_admin": user.get("admin") is True}
 
 
 @app.get("/api/admin/logs")
@@ -344,12 +457,8 @@ def admin_logs(
     offset: int = 0,
     user: dict = Depends(verify_token),
 ):
-    """Return a paginated page of translation or transcription logs.
-
-    Only accessible to users whose UID exists in the Firestore ``admins``
-    collection.  Raises HTTP 403 otherwise.
-    """
-    if not database.is_admin(user.get("uid")):
+    """Return a paginated page of translation or transcription logs. Admin only."""
+    if not (user.get("admin") is True):
         raise HTTPException(status_code=403, detail="Admin access required")
     if not (1 <= limit <= 100):
         raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
@@ -366,6 +475,73 @@ def admin_logs(
         raise HTTPException(status_code=400, detail="log_type must be 'translation', 'transcription', or 'feedback'")
 
     return {"logs": logs, "has_more": has_more}
+
+
+@app.get("/api/admin/users")
+def admin_list_users(
+    limit: int = 50,
+    offset: int = 0,
+    user: dict = Depends(verify_token),
+):
+    """Return a paginated list of all registered users. Admin only."""
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not (1 <= limit <= 100):
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+    users, has_more = database.get_all_users(limit=limit, offset=offset)
+    return {"users": users, "has_more": has_more}
+
+
+@app.post("/api/admin/users/{target_uid}/revoke")
+def admin_revoke_user(target_uid: str, user: dict = Depends(verify_token)):
+    """Revoke a user's access. Admin only."""
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    ok = database.revoke_user(target_uid)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found or update failed")
+    return {"success": True}
+
+
+# ── Allowlist endpoints ───────────────────────────────────────────────────────
+
+class AllowlistRequest(BaseModel):
+    email: str
+
+
+@app.get("/api/admin/allowlist")
+def admin_list_allowlist(
+    limit: int = 100,
+    offset: int = 0,
+    user: dict = Depends(verify_token),
+):
+    """Return the email allowlist. Admin only."""
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    emails, has_more = database.get_allowed_emails(limit=limit, offset=offset)
+    return {"emails": emails, "has_more": has_more}
+
+
+@app.post("/api/admin/allowlist")
+def admin_add_allowlist(req: AllowlistRequest, user: dict = Depends(verify_token)):
+    """Add an email to the allowlist. Admin only."""
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    ok = database.add_allowed_email(req.email, added_by=user.get("uid"))
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to add email to allowlist")
+    return {"success": True, "email": req.email.strip().lower()}
+
+
+@app.delete("/api/admin/allowlist/{email}")
+def admin_remove_allowlist(email: str, user: dict = Depends(verify_token)):
+    """Remove an email from the allowlist. Admin only."""
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    ok = database.remove_allowed_email(email)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to remove email from allowlist")
+    return {"success": True}
 
 
 # Frontend is now served separately via Vite dev server (unmute-fe)

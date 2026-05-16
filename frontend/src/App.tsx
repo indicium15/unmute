@@ -6,17 +6,16 @@ import { AdminPage } from "@/components/AdminPage"
 import { LearningPage } from "@/components/LearningPage"
 import { AboutPage } from "@/components/AboutPage"
 import { ReleaseNotesPage } from "@/components/ReleaseNotesPage"
+import { DictionaryPage } from "@/components/DictionaryPage"
 import { useTranslation, type TranslationResult } from "@/hooks/useTranslation"
 import { useSignPlayback } from "@/hooks/useSignPlayback"
 import { useAuth } from "@/contexts/useAuth"
-import { Button } from "@/components/ui/button"
 import { MessageSquare, LogOut, Shield, GraduationCap, Info, Github, Newspaper } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 const GITHUB_URL = "https://github.com/indicium15/unmute"
 
-type AppMode = "translate" | "learn" | "release-notes" | "about" | "admin"
+type AppMode = "translate" | "learn" | "dictionary" | "release-notes" | "about" | "admin"
 
 const NAV_ITEMS = [
   { mode: "translate" as AppMode, path: "/translate", label: "Translate", Icon: MessageSquare },
@@ -29,24 +28,23 @@ function modeFromPath(pathname: string): AppMode {
   const mode = NAV_ITEMS.find((item) => item.path === pathname)?.mode
   if (mode) return mode
   if (pathname === "/admin") return "admin"
+  if (pathname === "/dictionary") return "dictionary"
   return "translate"
 }
 
 function pathForMode(mode: AppMode) {
   if (mode === "admin") return "/admin"
+  if (mode === "dictionary") return "/dictionary"
   return NAV_ITEMS.find((item) => item.mode === mode)?.path ?? "/translate"
 }
 
 function isKnownPath(pathname: string) {
-  return pathname === "/admin" || NAV_ITEMS.some((item) => item.path === pathname)
+  return pathname === "/admin" || pathname === "/dictionary" || NAV_ITEMS.some((item) => item.path === pathname)
 }
 
 function App() {
-  const { user, loading, logout } = useAuth()
+  const { user, loading, logout, approvalStatus, isAdmin } = useAuth()
   const [mode, setModeState] = useState<AppMode>(() => modeFromPath(window.location.pathname))
-  const [_isAdmin, setIsAdmin] = useState(false)
-  // Derive so we never need to call setState synchronously inside an effect
-  const isAdmin = user ? _isAdmin : false
   const effectiveMode: AppMode = mode === "admin" && !isAdmin ? "translate" : mode
   const { result, setResult, isLoading, error, translate } = useTranslation()
   const { isPlaying, currentToken, currentGifUrl, currentPlaybackKey, playSequence, stopPlayback } = useSignPlayback()
@@ -60,17 +58,6 @@ function App() {
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
   }, [])
-
-  useEffect(() => {
-    if (!user) return
-    user.getIdToken().then((token) =>
-      fetch(`${API_BASE_URL}/api/admin/check`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-    ).then((r) => r.json())
-     .then((data: { is_admin?: boolean }) => setIsAdmin(data.is_admin === true))
-     .catch(() => setIsAdmin(false))
-  }, [user])
 
   const handleTranslate = useCallback(async (text: string) => {
     stopPlayback()
@@ -108,26 +95,94 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-bg-warm">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-accent-terracotta border-t-transparent animate-spin" />
-          <p className="text-text-muted text-sm">Loading…</p>
+          <div className="w-8 h-8 rounded-full border-2 border-[#6176f7] border-t-transparent animate-spin" />
+          <p className="text-[#6a7282] text-sm">Loading…</p>
         </div>
       </div>
     )
   }
 
-  if (!user) return <LoginPage />
+  if (!user) {
+    return <LoginPage />
+  }
+
+  if (!isAdmin && approvalStatus === "pending") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white px-4">
+        <div className="max-w-sm w-full text-center">
+          <div className="w-16 h-16 rounded-full bg-amber-50 border-2 border-amber-200 flex items-center justify-center mx-auto mb-5">
+            <svg className="w-8 h-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-semibold text-[#101828] mb-2">Pending approval</h2>
+          <p className="text-sm text-[#6a7282] leading-relaxed mb-6">
+            Your account is awaiting admin approval. You'll receive access once an admin reviews your request.
+          </p>
+          <button
+            onClick={logout}
+            className="text-sm text-[#6a7282] hover:text-[#4a5565] transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAdmin && approvalStatus === "revoked") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white px-4">
+        <div className="max-w-sm w-full text-center">
+          <div className="w-16 h-16 rounded-full bg-red-50 border-2 border-red-200 flex items-center justify-center mx-auto mb-5">
+            <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 715.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-semibold text-[#101828] mb-2">Access revoked</h2>
+          <p className="text-sm text-[#6a7282] leading-relaxed mb-6">
+            Your access to this application has been revoked. Please contact an admin if you believe this is a mistake.
+          </p>
+          <button
+            onClick={logout}
+            className="text-sm text-[#6a7282] hover:text-[#4a5565] transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (effectiveMode === "dictionary") {
+    return (
+      <DictionaryPage
+        onNavigate={(dest) => {
+          if (dest === "home") setMode("translate")
+          else setMode(dest)
+        }}
+        onSignOut={logout}
+      />
+    )
+  }
 
   return (
-    <div className="min-h-screen flex flex-col bg-bg-warm">
-      <div className="sticky top-0 z-40 bg-bg-warm/90 backdrop-blur-md border-b border-border-soft">
+    <div className="min-h-screen flex flex-col bg-[#f9fafb]">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-          <span className="font-serif text-2xl font-bold leading-none flex-shrink-0">
-            un<span className="text-gradient">mute</span>
-          </span>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="w-8 h-8 rounded-[12px] bg-[#6176f7] shadow flex items-center justify-center flex-shrink-0">
+              <img src="/home/icon-logo.svg" alt="" className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[13px] font-semibold leading-5 text-[#6176f7]">SgSL</p>
+              <p className="text-[11px] font-normal leading-4 text-[#6a7282] hidden sm:block">Singapore Sign Language</p>
+            </div>
+          </div>
 
-          <nav className="hidden sm:flex items-center gap-1 p-1 bg-bg-input rounded-[14px] border border-border-soft">
+          <nav className="hidden sm:flex items-center gap-1 p-1 bg-gray-100 rounded-[14px]">
             {navItems.map(({ mode: m, label, Icon }) => (
               <button
                 key={m}
@@ -135,8 +190,8 @@ function App() {
                 className={cn(
                   "inline-flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-medium transition-all duration-200",
                   isActiveMode(m)
-                    ? "bg-bg-card text-accent-terracotta shadow-[0_1px_8px_rgba(0,0,0,0.4)]"
-                    : "text-text-muted hover:text-text-secondary hover:bg-bg-card/50"
+                    ? "bg-white text-[#6176f7] shadow-sm"
+                    : "text-[#6a7282] hover:text-[#4a5565] hover:bg-white/60"
                 )}
               >
                 <Icon className="w-4 h-4" />
@@ -150,20 +205,18 @@ function App() {
               href={GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] text-text-muted hover:text-text-secondary hover:bg-bg-input transition-all duration-200"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] text-[#6a7282] hover:text-[#4a5565] hover:bg-gray-100 transition-all duration-200"
               title="View on GitHub"
             >
               <Github className="w-4 h-4" />
             </a>
-            <Button
-              variant="ghost"
-              size="icon"
+            <button
               onClick={logout}
               title="Sign out"
-              className="text-text-muted hover:text-text-secondary w-9 h-9"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] text-[#6a7282] hover:text-[#4a5565] hover:bg-gray-100 transition-all duration-200"
             >
               <LogOut className="w-4 h-4" />
-            </Button>
+            </button>
           </div>
         </div>
       </div>
@@ -217,7 +270,7 @@ function App() {
         )}
       </main>
 
-      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-50 bg-bg-card/95 backdrop-blur-md border-t border-border-soft">
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-gray-100 shadow-[0_-1px_8px_rgba(0,0,0,0.06)]">
         <div className="flex overflow-x-auto">
           {navItems.map(({ mode: m, label, Icon }) => (
             <button
@@ -225,7 +278,7 @@ function App() {
               onClick={() => setMode(m)}
               className={cn(
                 "min-w-[72px] flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-all duration-200",
-                isActiveMode(m) ? "text-accent-terracotta" : "text-text-muted"
+                isActiveMode(m) ? "text-[#6176f7]" : "text-[#6a7282]"
               )}
             >
               <Icon className={cn("w-5 h-5 transition-transform duration-200", isActiveMode(m) && "scale-110")} />

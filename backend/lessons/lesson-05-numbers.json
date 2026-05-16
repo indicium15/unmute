@@ -1,0 +1,8 @@
+{
+  "lesson_id": "lesson-05-numbers",
+  "lesson_name": "Numbers 1–10",
+  "description": "Count from one to ten in Singapore Sign Language.",
+  "emoji": "🔢",
+  "order": 5,
+  "tokens": ["ONE_NUMERAL", "TWO_NUMERAL", "THREE_NUMERAL", "FOUR_NUMERAL", "FIVE_NUMERAL", "SIX_NUMERAL", "SEVEN_NUMERAL", "EIGHT_NUMERAL", "NINE_NUMERAL", "TEN_NUMERAL"]
+}

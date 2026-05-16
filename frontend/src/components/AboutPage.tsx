@@ -78,7 +78,7 @@ export function AboutPage() {
             <div
               key={title}
               className="flex flex-col gap-3 p-5 rounded-[14px] bg-bg-card border border-border-soft hover:border-border-warm transition-all duration-200"
-              style={{ boxShadow: "0 2px 16px rgba(0,0,0,0.3)" }}
+              style={{ boxShadow: "0 2px 10px rgba(0,0,0,0.07)" }}
             >
               <div className="w-9 h-9 rounded-[10px] bg-accent-soft border border-accent-terracotta/20 flex items-center justify-center flex-shrink-0">
                 <Icon className="w-4.5 h-4.5 text-accent-terracotta" />
