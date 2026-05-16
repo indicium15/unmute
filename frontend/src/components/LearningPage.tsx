@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { AlertCircle, ChevronLeft, LogOut } from "lucide-react"
+import { AlertCircle, ChevronLeft } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 
@@ -74,11 +75,12 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export interface LearningPageProps {
-  onNavigate: (dest: "home" | "dictionary") => void
+  onNavigate: (dest: NavMode | "home") => void
   onSignOut: () => void
+  isAdmin?: boolean
 }
 
-export function LearningPage({ onNavigate, onSignOut }: LearningPageProps) {
+export function LearningPage({ onNavigate, onSignOut, isAdmin }: LearningPageProps) {
   const [lessons, setLessons] = useState<LessonSummary[]>([])
   const [loadingLessons, setLoadingLessons] = useState(false)
   const [lessonsError, setLessonsError] = useState("")
@@ -204,46 +206,12 @@ export function LearningPage({ onNavigate, onSignOut }: LearningPageProps) {
 
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
-      {/* Navbar */}
-      <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm">
-        <div className="max-w-[1152px] mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => onNavigate("home")} className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-[14px] bg-[#6176f7] shadow flex items-center justify-center flex-shrink-0">
-              <img src="/home/icon-logo.svg" alt="" className="w-5 h-5" />
-            </div>
-            <div className="text-left">
-              <p className="text-[14px] font-semibold leading-5 text-[#6176f7]">SgSL</p>
-              <p className="text-[12px] font-normal leading-4 text-[#6a7282]">Singapore Sign Language</p>
-            </div>
-          </button>
-
-          <div className="flex items-center gap-1 p-1">
-            <button
-              onClick={() => onNavigate("home")}
-              className="px-4 py-2 rounded-[10px] text-[14px] font-normal text-[#4a5565] hover:bg-gray-100 transition-colors"
-            >
-              Home
-            </button>
-            <button
-              onClick={() => onNavigate("dictionary")}
-              className="px-4 py-2 rounded-[10px] text-[14px] font-normal text-[#4a5565] hover:bg-gray-100 transition-colors"
-            >
-              Dictionary
-            </button>
-            <button className="px-4 py-2 rounded-[10px] text-[14px] font-medium text-white bg-[#6176f7] shadow">
-              Learn SGSL
-            </button>
-          </div>
-
-          <button
-            onClick={onSignOut}
-            className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-[14px] font-medium text-[#4a5565] hover:bg-gray-100 transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            Sign Out
-          </button>
-        </div>
-      </nav>
+      <AppNavbar
+        activeMode="learn"
+        onNavigate={(dest) => onNavigate(dest)}
+        onLogout={onSignOut}
+        isAdmin={isAdmin}
+      />
 
       {/* Hero */}
       <section className="bg-[#6176f7] pt-12 pb-8">

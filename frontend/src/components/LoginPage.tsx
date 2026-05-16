@@ -212,7 +212,7 @@ export function LoginPage() {
 
       {/* Footer */}
       <footer className="border-t border-gray-100 py-5">
-        <p className="text-center text-[12px] text-[#99a1af]">© 2026 SGSL Learn. All rights reserved.</p>
+        <p className="text-center text-[12px] text-[#99a1af]">© 2026 SgSL Learn. All rights reserved.</p>
       </footer>
     </div>
   )

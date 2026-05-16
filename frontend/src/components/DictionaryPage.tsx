@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
-import { Search, SlidersHorizontal, LogOut } from "lucide-react"
+import { Search, SlidersHorizontal } from "lucide-react"
 import { auth } from "@/lib/firebase"
+import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 
@@ -70,11 +71,12 @@ interface SignsResponse {
 }
 
 export interface DictionaryPageProps {
-  onNavigate: (dest: "translate" | "learn" | "home") => void
+  onNavigate: (dest: NavMode | "home") => void
   onSignOut: () => void
+  isAdmin?: boolean
 }
 
-export function DictionaryPage({ onNavigate, onSignOut }: DictionaryPageProps) {
+export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPageProps) {
   const [search, setSearch] = useState("")
   const [activeCategory, setActiveCategory] = useState("All")
   const [allSigns, setAllSigns] = useState<DictionarySign[]>([])
@@ -154,54 +156,17 @@ export function DictionaryPage({ onNavigate, onSignOut }: DictionaryPageProps) {
 
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
-      {/* Navbar */}
-      <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm">
-        <div className="max-w-[1152px] mx-auto px-6 h-16 flex items-center justify-between">
-          <button
-            onClick={() => onNavigate("home")}
-            className="flex items-center gap-2"
-          >
-            <div className="w-9 h-9 rounded-[14px] bg-[#6176f7] shadow flex items-center justify-center flex-shrink-0">
-              <img src="/home/icon-logo.svg" alt="" className="w-5 h-5" />
-            </div>
-            <div className="text-left">
-              <p className="text-[14px] font-semibold leading-5 text-[#6176f7]">SgSL</p>
-              <p className="text-[12px] font-normal leading-4 text-[#6a7282]">Singapore Sign Language</p>
-            </div>
-          </button>
-
-          <div className="flex items-center gap-1 p-1">
-            <button
-              onClick={() => onNavigate("home")}
-              className="px-4 py-2 rounded-[10px] text-[14px] font-normal text-[#4a5565] hover:bg-gray-100 transition-colors"
-            >
-              Home
-            </button>
-            <button className="px-4 py-2 rounded-[10px] text-[14px] font-medium text-white bg-[#6176f7] shadow">
-              Dictionary
-            </button>
-            <button
-              onClick={() => onNavigate("learn")}
-              className="px-4 py-2 rounded-[10px] text-[14px] font-normal text-[#4a5565] hover:bg-gray-100 transition-colors"
-            >
-              Learn SGSL
-            </button>
-          </div>
-
-          <button
-            onClick={onSignOut}
-            className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-[14px] font-medium text-[#4a5565] hover:bg-gray-100 transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            Sign Out
-          </button>
-        </div>
-      </nav>
+      <AppNavbar
+        activeMode="dictionary"
+        onNavigate={(dest) => onNavigate(dest)}
+        onLogout={onSignOut}
+        isAdmin={isAdmin}
+      />
 
       {/* Hero */}
       <section className="bg-[#6176f7] pt-12 pb-8">
         <div className="max-w-[1152px] mx-auto px-6">
-          <h1 className="text-[30px] font-bold text-white leading-9 mb-3">SGSL Dictionary</h1>
+          <h1 className="text-[30px] font-bold text-white leading-9 mb-3">SgSL Dictionary</h1>
           <p className="text-[14px] text-white/80 mb-6">
             Browse and search {loading ? "…" : allSigns.length} Singapore Sign Language signs
           </p>
@@ -304,10 +269,10 @@ export function DictionaryPage({ onNavigate, onSignOut }: DictionaryPageProps) {
                 <div className="w-8 h-8 rounded-[10px] bg-[#6176f7] flex items-center justify-center flex-shrink-0">
                   <img src="/home/icon-logo-footer.svg" alt="" className="w-4 h-4" />
                 </div>
-                <span className="text-[16px] font-semibold text-[#1e2939]">SGSL Learn</span>
+                <span className="text-[16px] font-semibold text-[#1e2939]">SgSL Learn</span>
               </div>
               <p className="text-[14px] leading-[22.75px] text-[#6a7282]">
-                Empowering communication through Singapore Sign Language making SGSL accessible to everyone.
+                Empowering communication through Singapore Sign Language making SgSL accessible to everyone.
               </p>
             </div>
 
@@ -323,14 +288,14 @@ export function DictionaryPage({ onNavigate, onSignOut }: DictionaryPageProps) {
                   </button>
                 </li>
                 <li>
-                  <span className="text-[14px] font-medium text-[#6176f7]">SGSL Dictionary</span>
+                  <span className="text-[14px] font-medium text-[#6176f7]">SgSL Dictionary</span>
                 </li>
                 <li>
                   <button
                     onClick={() => onNavigate("learn")}
                     className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors"
                   >
-                    Learn SGSL
+                    Learn SgSL
                   </button>
                 </li>
               </ul>
@@ -339,13 +304,13 @@ export function DictionaryPage({ onNavigate, onSignOut }: DictionaryPageProps) {
             <div className="flex flex-col gap-3">
               <p className="text-[14px] font-semibold text-[#364153]">About</p>
               <p className="text-[14px] leading-5 text-[#6a7282]">
-                Singapore Sign Language (SGSL) is the natural language used by the Deaf community in Singapore.
+                Singapore Sign Language (SgSL) is the natural language used by the Deaf community in Singapore.
               </p>
             </div>
           </div>
 
           <div className="border-t border-[#e5e7eb] pt-6 flex items-center justify-between">
-            <p className="text-[12px] text-[#99a1af]">© 2026 SGSL Learn. All rights reserved.</p>
+            <p className="text-[12px] text-[#99a1af]">© 2026 SgSL Learn. All rights reserved.</p>
             <p className="text-[12px] text-[#99a1af] flex items-center gap-1">
               Made with
               <img src="/home/icon-heart.svg" alt="love" className="w-3 h-3" />

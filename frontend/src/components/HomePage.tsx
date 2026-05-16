@@ -1,10 +1,15 @@
 import { useState } from "react"
+import { useVoiceRecording } from "@/hooks/useVoiceRecording"
+import type { TranslationResult } from "@/hooks/useTranslation"
+import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 
 interface HomePageProps {
-  onNavigate: (mode: "translate" | "learn" | "dictionary") => void
+  onNavigate: (mode: NavMode) => void
   onSignIn?: () => void
   onTranslate?: (text: string) => void
+  onVoiceResult?: (result: TranslationResult) => void
   onLogout?: () => void
+  isAdmin?: boolean
 }
 
 const SUGGESTED_PHRASES = [
@@ -16,8 +21,13 @@ const SUGGESTED_PHRASES = [
   "Good morning everyone",
 ]
 
-export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePageProps) {
+export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isAdmin }: HomePageProps) {
   const [inputText, setInputText] = useState("")
+
+  const { isRecording, isProcessing, toggleRecording } = useVoiceRecording({
+    onTranscription: (text) => setInputText(text),
+    onResult: (result) => onVoiceResult?.(result),
+  })
 
   const handleTranslate = () => {
     if (onTranslate) {
@@ -38,56 +48,12 @@ export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePa
 
   return (
     <div className="min-h-screen bg-white font-sans" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
-      {/* Navbar */}
-      <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm">
-        <div className="max-w-[1152px] mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-[14px] bg-[#6176f7] shadow flex items-center justify-center flex-shrink-0">
-              <img src="/home/icon-logo.svg" alt="" className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[14px] font-semibold leading-5 text-[#6176f7]">SgSL</p>
-              <p className="text-[12px] font-normal leading-4 text-[#6a7282]">Singapore Sign Language</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 p-1">
-            <button
-              className="px-4 py-2 rounded-[10px] text-[14px] font-medium text-white bg-[#6176f7] shadow"
-            >
-              Home
-            </button>
-            <button
-              onClick={() => onNavigate("dictionary")}
-              className="px-4 py-2 rounded-[10px] text-[14px] font-normal text-[#4a5565] hover:bg-gray-100 transition-colors"
-            >
-              Dictionary
-            </button>
-            <button
-              onClick={() => onNavigate("learn")}
-              className="px-4 py-2 rounded-[10px] text-[14px] font-normal text-[#4a5565] hover:bg-gray-100 transition-colors"
-            >
-              Learn SGSL
-            </button>
-          </div>
-
-          {onLogout ? (
-            <button
-              onClick={onLogout}
-              className="px-4 py-2 rounded-[10px] text-[14px] font-medium text-[#6a7282] hover:text-[#4a5565] hover:bg-gray-100 transition-colors"
-            >
-              Sign out
-            </button>
-          ) : onSignIn ? (
-            <button
-              onClick={onSignIn}
-              className="px-4 py-2 rounded-[10px] text-[14px] font-medium text-[#6176f7] border border-[#6176f7] hover:bg-[#6176f7] hover:text-white transition-colors"
-            >
-              Sign In
-            </button>
-          ) : null}
-        </div>
-      </nav>
+      <AppNavbar
+        activeMode="translate"
+        onNavigate={onNavigate}
+        onLogout={onLogout ?? (() => {})}
+        isAdmin={isAdmin}
+      />
 
       {/* Hero Section */}
       <section className="relative bg-white overflow-hidden">
@@ -109,26 +75,9 @@ export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePa
 
           {/* Subtitle */}
           <p className="text-[18px] font-normal leading-[29px] text-[#6a7282] text-center max-w-[576px]">
-            Translate any phrase to Singapore Sign Language. Explore the SGSL dictionary, or start your learning journey today.
+            Translate any phrase to Singapore Sign Language. Explore the SgSL dictionary, or start your learning journey today.
           </p>
 
-          {/* CTA Buttons */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleTranslate}
-              className="flex items-center gap-2 px-4 h-9 rounded-[10px] bg-[#6176f7] text-white text-[14px] font-medium shadow hover:bg-[#5068f0] transition-colors"
-            >
-              <img src="/home/icon-text.svg" alt="" className="w-4 h-4" />
-              Text to SGSL
-            </button>
-            <button
-              onClick={handleTranslate}
-              className="flex items-center gap-2 px-4 h-9 rounded-[10px] bg-gray-100 text-[#6a7282] text-[14px] font-medium hover:bg-gray-200 transition-colors"
-            >
-              <img src="/home/icon-voice.svg" alt="" className="w-4 h-4" />
-              Voice to SGSL
-            </button>
-          </div>
 
           {/* Search Input */}
           <div className="w-full max-w-[672px] bg-white border border-gray-100 rounded-2xl shadow-lg flex items-center overflow-hidden h-14">
@@ -143,7 +92,32 @@ export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePa
               placeholder="Type a word or phrase (e.g. Hello my name is...)"
               className="flex-1 text-[16px] text-[#6a7282] placeholder:text-[#99a1af] outline-none bg-transparent min-w-0"
             />
-            <div className="pr-2 flex-shrink-0">
+            <div className="pr-2 flex-shrink-0 flex items-center gap-1">
+              <button
+                onClick={toggleRecording}
+                title={isRecording ? "Stop recording" : "Record voice"}
+                className={`w-10 h-10 rounded-[12px] flex items-center justify-center transition-all ${
+                  isRecording
+                    ? "bg-red-50 text-red-500 animate-pulse"
+                    : isProcessing
+                    ? "bg-gray-50 text-[#99a1af] cursor-wait"
+                    : "text-[#99a1af] hover:bg-gray-50 hover:text-[#6176f7]"
+                }`}
+              >
+                {isProcessing ? (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="2" width="6" height="11" rx="3" />
+                    <path d="M5 10a7 7 0 0014 0" />
+                    <line x1="12" y1="19" x2="12" y2="22" />
+                    <line x1="9" y1="22" x2="15" y2="22" />
+                  </svg>
+                )}
+              </button>
               <button
                 onClick={handleTranslate}
                 className="px-5 h-10 rounded-[14px] bg-[#6176f7] text-white text-[14px] font-medium opacity-40 hover:opacity-100 transition-opacity"
@@ -181,21 +155,21 @@ export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePa
               Bridging communication gaps in Singapore
             </h2>
             <p className="text-[14px] font-normal leading-[22.75px] text-white/80">
-              SGSL (Singapore Sign Language) is the primary language of the Deaf community in Singapore. Our platform helps both Deaf and hearing individuals communicate effectively.
+              SgSL (Singapore Sign Language) is the primary language of the Deaf community in Singapore. Our platform helps both Deaf and hearing individuals communicate effectively.
             </p>
             <div className="flex items-center gap-5">
               <button
                 onClick={() => onNavigate("dictionary")}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[14px] bg-white text-[#6176f7] text-[14px] font-semibold hover:bg-gray-50 transition-colors"
               >
-                View SGSL Dictionary
+                View SgSL Dictionary
                 <img src="/home/icon-arrow-right.svg" alt="" className="w-4 h-4" />
               </button>
               <button
                 onClick={() => onNavigate("learn")}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[14px] bg-white text-[#6176f7] text-[14px] font-semibold hover:bg-gray-50 transition-colors"
               >
-                Learn SGSL
+                Learn SgSL
                 <img src="/home/icon-arrow-right2.svg" alt="" className="w-4 h-4" />
               </button>
             </div>
@@ -222,10 +196,10 @@ export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePa
                 <div className="w-8 h-8 rounded-[10px] bg-[#6176f7] flex items-center justify-center flex-shrink-0">
                   <img src="/home/icon-logo-footer.svg" alt="" className="w-4 h-4" />
                 </div>
-                <span className="text-[16px] font-semibold text-[#1e2939]">SGSL Learn</span>
+                <span className="text-[16px] font-semibold text-[#1e2939]">SgSL Learn</span>
               </div>
               <p className="text-[14px] font-normal leading-[22.75px] text-[#6a7282]">
-                Empowering communication through Singapore Sign Language making SGSL accessible to everyone.
+                Empowering communication through Singapore Sign Language making SgSL accessible to everyone.
               </p>
             </div>
 
@@ -240,12 +214,12 @@ export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePa
                 </li>
                 <li>
                   <button onClick={() => onNavigate("dictionary")} className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors">
-                    SGSL Dictionary
+                    SgSL Dictionary
                   </button>
                 </li>
                 <li>
                   <button onClick={() => onNavigate("learn")} className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors">
-                    Learn SGSL
+                    Learn SgSL
                   </button>
                 </li>
               </ul>
@@ -255,14 +229,14 @@ export function HomePage({ onNavigate, onSignIn, onTranslate, onLogout }: HomePa
             <div className="flex flex-col gap-3">
               <p className="text-[14px] font-semibold text-[#364153]">About</p>
               <p className="text-[14px] font-normal leading-5 text-[#6a7282]">
-                Singapore Sign Language (SGSL) is the natural language used by the Deaf community in Singapore.
+                Singapore Sign Language (SgSL) is the natural language used by the Deaf community in Singapore.
               </p>
             </div>
           </div>
 
           {/* Bottom bar */}
           <div className="border-t border-[#e5e7eb] pt-6 flex items-center justify-between">
-            <p className="text-[12px] text-[#99a1af]">© 2026 SGSL Learn. All rights reserved.</p>
+            <p className="text-[12px] text-[#99a1af]">© 2026 SgSL Learn. All rights reserved.</p>
             <p className="text-[12px] text-[#99a1af] flex items-center gap-1">
               Made with
               <img src="/home/icon-heart.svg" alt="love" className="w-3 h-3" />
