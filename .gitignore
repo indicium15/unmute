@@ -17,5 +17,5 @@ dataset/
 CLAUDE.md
 AGENTS.md
 dev.sh
-.github/
 ml_experiments/
+.github/
