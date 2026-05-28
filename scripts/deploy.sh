@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-unmute-c9757}"
+PROJECT_ID="${PROJECT_ID:-kinnect-sgsl}"
 REGION="${REGION:-asia-southeast1}"
-BACKEND_SERVICE="${BACKEND_SERVICE:-unmute-backend}"
+BACKEND_SERVICE="${BACKEND_SERVICE:-kinnect-backend}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-gcr.io/${PROJECT_ID}/${BACKEND_SERVICE}}"
 BACKEND_MEMORY="${BACKEND_MEMORY:-1Gi}"
 
@@ -65,7 +65,7 @@ deploy_backend() {
 
   echo "==> Building backend image: ${BACKEND_IMAGE}"
   cd "${ROOT_DIR}/backend"
-  gcloud builds submit --tag "${BACKEND_IMAGE}" .
+  gcloud builds submit --tag "${BACKEND_IMAGE}" --project "${PROJECT_ID}" .
 
   echo "==> Deploying Cloud Run service: ${BACKEND_SERVICE}"
   gcloud run deploy "${BACKEND_SERVICE}" \

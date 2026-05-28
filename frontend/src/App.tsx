@@ -4,25 +4,21 @@ import { OutputPanel } from "@/components/OutputPanel"
 import { LoginPage } from "@/components/LoginPage"
 import { AdminPage } from "@/components/AdminPage"
 import { LearningPage } from "@/components/LearningPage"
-import { AboutPage } from "@/components/AboutPage"
-import { ReleaseNotesPage } from "@/components/ReleaseNotesPage"
+import { DictionaryPage } from "@/components/DictionaryPage"
+import { HomePage } from "@/components/HomePage"
+import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 import { useTranslation, type TranslationResult } from "@/hooks/useTranslation"
 import { useSignPlayback } from "@/hooks/useSignPlayback"
 import { useAuth } from "@/contexts/useAuth"
-import { Button } from "@/components/ui/button"
-import { MessageSquare, LogOut, Shield, GraduationCap, Info, Github, Newspaper } from "lucide-react"
+import { Shield, GraduationCap, Home, BookOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
-const GITHUB_URL = "https://github.com/indicium15/unmute"
-
-type AppMode = "translate" | "learn" | "release-notes" | "about" | "admin"
+type AppMode = NavMode
 
 const NAV_ITEMS = [
-  { mode: "translate" as AppMode, path: "/translate", label: "Translate", Icon: MessageSquare },
-  { mode: "learn" as AppMode, path: "/learn", label: "Learn", Icon: GraduationCap },
-  { mode: "release-notes" as AppMode, path: "/release-notes", label: "Release Notes", Icon: Newspaper },
-  { mode: "about" as AppMode, path: "/about", label: "About", Icon: Info },
+  { mode: "translate" as AppMode, path: "/translate", label: "Home", Icon: Home },
+  { mode: "dictionary" as AppMode, path: "/dictionary", label: "Dictionary", Icon: BookOpen },
+  { mode: "learn" as AppMode, path: "/learn", label: "Learn SgSL", Icon: GraduationCap },
 ]
 
 function modeFromPath(pathname: string): AppMode {
@@ -42,14 +38,12 @@ function isKnownPath(pathname: string) {
 }
 
 function App() {
-  const { user, loading, logout } = useAuth()
+  const { user, loading, logout, approvalStatus, isAdmin } = useAuth()
   const [mode, setModeState] = useState<AppMode>(() => modeFromPath(window.location.pathname))
-  const [_isAdmin, setIsAdmin] = useState(false)
-  // Derive so we never need to call setState synchronously inside an effect
-  const isAdmin = user ? _isAdmin : false
   const effectiveMode: AppMode = mode === "admin" && !isAdmin ? "translate" : mode
   const { result, setResult, isLoading, error, translate } = useTranslation()
   const { isPlaying, currentToken, currentGifUrl, currentPlaybackKey, playSequence, stopPlayback } = useSignPlayback()
+  const [hasAttemptedTranslation, setHasAttemptedTranslation] = useState(false)
 
   useEffect(() => {
     if (window.location.pathname === "/" || !isKnownPath(window.location.pathname)) {
@@ -61,17 +55,6 @@ function App() {
     return () => window.removeEventListener("popstate", handlePopState)
   }, [])
 
-  useEffect(() => {
-    if (!user) return
-    user.getIdToken().then((token) =>
-      fetch(`${API_BASE_URL}/api/admin/check`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-    ).then((r) => r.json())
-     .then((data: { is_admin?: boolean }) => setIsAdmin(data.is_admin === true))
-     .catch(() => setIsAdmin(false))
-  }, [user])
-
   const handleTranslate = useCallback(async (text: string) => {
     stopPlayback()
     const translationResult = await translate(text)
@@ -79,6 +62,16 @@ function App() {
       playSequence(translationResult.plan)
     }
     return translationResult
+  }, [translate, playSequence, stopPlayback])
+
+  const handleLandingTranslate = useCallback(async (text: string) => {
+    setHasAttemptedTranslation(true)
+    if (!text) return
+    stopPlayback()
+    const translationResult = await translate(text)
+    if (translationResult && translationResult.plan.length > 0) {
+      playSequence(translationResult.plan)
+    }
   }, [translate, playSequence, stopPlayback])
 
   const handleVoiceResult = useCallback((voiceResult: TranslationResult) => {
@@ -93,80 +86,123 @@ function App() {
     if (result && result.plan.length > 0) playSequence(result.plan)
   }, [result, playSequence])
 
-  const navItems = isAdmin
-    ? [...NAV_ITEMS, { mode: "admin" as AppMode, path: "/admin", label: "Admin", Icon: Shield }]
-    : NAV_ITEMS
-
-  const isActiveMode = (m: AppMode) => m === effectiveMode
   const setMode = (nextMode: AppMode) => {
     const nextPath = pathForMode(nextMode)
     if (window.location.pathname !== nextPath) {
       window.history.pushState(null, "", nextPath)
+    }
+    if (nextMode !== "translate") {
+      setHasAttemptedTranslation(false)
     }
     setModeState(nextMode)
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-bg-warm">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-accent-terracotta border-t-transparent animate-spin" />
-          <p className="text-text-muted text-sm">Loading…</p>
+          <div className="w-8 h-8 rounded-full border-2 border-[#6176f7] border-t-transparent animate-spin" />
+          <p className="text-[#6a7282] text-sm">Loading…</p>
         </div>
       </div>
     )
   }
 
-  if (!user) return <LoginPage />
+  if (!user) {
+    return <LoginPage />
+  }
 
-  return (
-    <div className="min-h-screen flex flex-col bg-bg-warm">
-      <div className="sticky top-0 z-40 bg-bg-warm/90 backdrop-blur-md border-b border-border-soft">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-          <span className="font-serif text-2xl font-bold leading-none flex-shrink-0">
-            un<span className="text-gradient">mute</span>
-          </span>
-
-          <nav className="hidden sm:flex items-center gap-1 p-1 bg-bg-input rounded-[14px] border border-border-soft">
-            {navItems.map(({ mode: m, label, Icon }) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={cn(
-                  "inline-flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-medium transition-all duration-200",
-                  isActiveMode(m)
-                    ? "bg-bg-card text-accent-terracotta shadow-[0_1px_8px_rgba(0,0,0,0.4)]"
-                    : "text-text-muted hover:text-text-secondary hover:bg-bg-card/50"
-                )}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </button>
-            ))}
-          </nav>
-
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] text-text-muted hover:text-text-secondary hover:bg-bg-input transition-all duration-200"
-              title="View on GitHub"
-            >
-              <Github className="w-4 h-4" />
-            </a>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={logout}
-              title="Sign out"
-              className="text-text-muted hover:text-text-secondary w-9 h-9"
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
+  if (!isAdmin && approvalStatus === "pending") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white px-4">
+        <div className="max-w-sm w-full text-center">
+          <div className="w-16 h-16 rounded-full bg-amber-50 border-2 border-amber-200 flex items-center justify-center mx-auto mb-5">
+            <svg className="w-8 h-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
           </div>
+          <h2 className="text-2xl font-semibold text-[#101828] mb-2">Pending approval</h2>
+          <p className="text-sm text-[#6a7282] leading-relaxed mb-6">
+            Your account is awaiting admin approval. You'll receive access once an admin reviews your request.
+          </p>
+          <button
+            onClick={logout}
+            className="text-sm text-[#6a7282] hover:text-[#4a5565] transition-colors"
+          >
+            Sign out
+          </button>
         </div>
       </div>
+    )
+  }
+
+  if (!isAdmin && approvalStatus === "revoked") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white px-4">
+        <div className="max-w-sm w-full text-center">
+          <div className="w-16 h-16 rounded-full bg-red-50 border-2 border-red-200 flex items-center justify-center mx-auto mb-5">
+            <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 715.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-semibold text-[#101828] mb-2">Access revoked</h2>
+          <p className="text-sm text-[#6a7282] leading-relaxed mb-6">
+            Your access to this application has been revoked. Please contact an admin if you believe this is a mistake.
+          </p>
+          <button
+            onClick={logout}
+            className="text-sm text-[#6a7282] hover:text-[#4a5565] transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (effectiveMode === "dictionary") {
+    return (
+      <DictionaryPage
+        onNavigate={(dest) => setMode(dest === "home" ? "translate" : dest)}
+        onSignOut={logout}
+        isAdmin={isAdmin}
+      />
+    )
+  }
+
+  if (effectiveMode === "learn") {
+    return (
+      <LearningPage
+        onNavigate={(dest) => setMode(dest === "home" ? "translate" : dest)}
+        onSignOut={logout}
+        isAdmin={isAdmin}
+      />
+    )
+  }
+
+  if (effectiveMode === "translate" && !hasAttemptedTranslation) {
+    return (
+      <HomePage
+        onNavigate={(dest) => setMode(dest)}
+        onTranslate={handleLandingTranslate}
+        onVoiceResult={(voiceResult) => {
+          setHasAttemptedTranslation(true)
+          handleVoiceResult(voiceResult)
+        }}
+        onLogout={logout}
+        isAdmin={isAdmin}
+      />
+    )
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#f9fafb]">
+      <AppNavbar
+        activeMode={effectiveMode}
+        onNavigate={setMode}
+        onLogout={logout}
+        isAdmin={isAdmin}
+      />
 
       <main className="flex-1 max-w-[1440px] mx-auto w-full px-4 sm:px-6 pt-5 pb-24 sm:pb-8">
         {effectiveMode === "translate" && (
@@ -192,24 +228,6 @@ function App() {
           </div>
         )}
 
-        {effectiveMode === "learn" && (
-          <div className="animate-fade-in-up">
-            <LearningPage />
-          </div>
-        )}
-
-        {effectiveMode === "about" && (
-          <div className="animate-fade-in-up">
-            <AboutPage />
-          </div>
-        )}
-
-        {effectiveMode === "release-notes" && (
-          <div className="animate-fade-in-up">
-            <ReleaseNotesPage />
-          </div>
-        )}
-
         {effectiveMode === "admin" && (
           <div className="animate-fade-in-up">
             <AdminPage />
@@ -217,18 +235,18 @@ function App() {
         )}
       </main>
 
-      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-50 bg-bg-card/95 backdrop-blur-md border-t border-border-soft">
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-gray-100 shadow-[0_-1px_8px_rgba(0,0,0,0.06)]">
         <div className="flex overflow-x-auto">
-          {navItems.map(({ mode: m, label, Icon }) => (
+          {(isAdmin ? [...NAV_ITEMS, { mode: "admin" as AppMode, path: "/admin", label: "Admin", Icon: Shield }] : NAV_ITEMS).map(({ mode: m, label, Icon }) => (
             <button
               key={m}
               onClick={() => setMode(m)}
               className={cn(
                 "min-w-[72px] flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-all duration-200",
-                isActiveMode(m) ? "text-accent-terracotta" : "text-text-muted"
+                effectiveMode === m ? "text-[#6176f7]" : "text-[#6a7282]"
               )}
             >
-              <Icon className={cn("w-5 h-5 transition-transform duration-200", isActiveMode(m) && "scale-110")} />
+              <Icon className={cn("w-5 h-5 transition-transform duration-200", effectiveMode === m && "scale-110")} />
               <span className="text-[10px] font-medium tracking-wide">{label}</span>
             </button>
           ))}

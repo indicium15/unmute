@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Google Cloud / Firebase project: `unmute-c9757` (same project as the backend)
+- Google Cloud / Firebase project: `kinnect-sgsl` (same project as the backend)
 - Node.js 20+ and npm (or another compatible package manager)
 - `firebase-tools` installed globally: `npm install -g firebase-tools`
 - A deployed backend URL (see [BACKEND_DEPLOYMENT.md](./BACKEND_DEPLOYMENT.md)) — you will point the SPA at that API at **build time**
@@ -12,14 +12,14 @@
 ### 1. Authenticate Firebase CLI
 ```bash
 firebase login
-firebase use unmute-c9757
+firebase use kinnect-sgsl
 ```
 
 If the project is not linked locally yet:
 ```bash
 firebase use --add
 ```
-Select `unmute-c9757` and choose an alias (for example `default`).
+Select `kinnect-sgsl` and choose an alias (for example `default`).
 
 ### 2. Confirm hosting configuration
 
@@ -53,9 +53,9 @@ Example **inline** build (replace placeholders with your real values):
 ```bash
 VITE_API_BASE_URL=https://YOUR-CLOUD-RUN-URL \
 VITE_FIREBASE_API_KEY=... \
-VITE_FIREBASE_AUTH_DOMAIN=unmute-c9757.firebaseapp.com \
-VITE_FIREBASE_PROJECT_ID=unmute-c9757 \
-VITE_FIREBASE_STORAGE_BUCKET=... \
+VITE_FIREBASE_AUTH_DOMAIN=kinnect-sgsl.firebaseapp.com \
+VITE_FIREBASE_PROJECT_ID=kinnect-sgsl \
+VITE_FIREBASE_STORAGE_BUCKET=kinnect-sgsl.firebasestorage.app \
 VITE_FIREBASE_MESSAGING_SENDER_ID=... \
 VITE_FIREBASE_APP_ID=... \
 npm run build
@@ -85,11 +85,11 @@ Rebuild whenever you change code or any `VITE_*` value — Vite does not read en
 
 | Variable | Purpose |
 |---|---|
-| `VITE_API_BASE_URL` | Backend HTTP API base URL (e.g. Cloud Run `https://...run.app`) |
+| `VITE_API_BASE_URL` | Backend HTTP API base URL (Cloud Run `https://kinnect-backend-486007040576.asia-southeast1.run.app`) |
 | `VITE_FIREBASE_API_KEY` | Firebase web API key |
-| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase Auth domain (often `PROJECT_ID.firebaseapp.com`) |
-| `VITE_FIREBASE_PROJECT_ID` | Firebase project ID (`unmute-c9757`) |
-| `VITE_FIREBASE_STORAGE_BUCKET` | Firebase default storage bucket |
+| `VITE_FIREBASE_AUTH_DOMAIN` | `kinnect-sgsl.firebaseapp.com` |
+| `VITE_FIREBASE_PROJECT_ID` | `kinnect-sgsl` |
+| `VITE_FIREBASE_STORAGE_BUCKET` | `kinnect-sgsl.firebasestorage.app` |
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID |
 | `VITE_FIREBASE_APP_ID` | Firebase web app ID |
 

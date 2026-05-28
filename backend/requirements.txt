@@ -82,3 +82,4 @@ urllib3==2.4.0
 uvicorn==0.40.0
 google-cloud-storage==2.18.2
 firebase-admin==6.7.0
+openai>=1.30.0

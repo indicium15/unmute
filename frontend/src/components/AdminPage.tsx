@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, ThumbsUp, ThumbsDown } from "lucide-react"
+import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, ThumbsUp, ThumbsDown, Users, FileText, ShieldCheck } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
 }
 
+type AdminTab = "users" | "allowlist" | "logs"
 type LogTab = "translation" | "transcription" | "feedback"
 
 interface TranslationLog {
@@ -286,9 +287,390 @@ function Field({
   )
 }
 
+// ── User management panel ──────────────────────────────────────────────────
+
+interface UserRecord {
+  id: string
+  uid: string
+  email: string | null
+  status: "pending" | "approved" | "revoked"
+  registered_at: string
+  approved_at?: string
+  approved_by?: string
+}
+
+const STATUS_STYLES: Record<UserRecord["status"], string> = {
+  pending: "bg-amber-50 text-amber-700 border border-amber-200",
+  approved: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  revoked: "bg-red-50 text-red-600 border border-red-200",
+}
+
+function UsersPanel() {
+  const [users, setUsers] = useState<UserRecord[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+
+  const fetchUsers = useCallback(async (pageNum: number) => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(
+        `${API_BASE_URL}/api/admin/users?limit=${PAGE_SIZE}&offset=${pageNum * PAGE_SIZE}`,
+        { headers }
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
+      }
+      const data = await res.json() as { users: UserRecord[]; has_more: boolean }
+      setUsers(data.users)
+      setHasMore(data.has_more)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to fetch users")
+      setUsers([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchUsers(0) }, [fetchUsers])
+
+  const handleAction = async (uid: string, action: "revoke") => {
+    setActionLoading(uid)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API_BASE_URL}/api/admin/users/${uid}/${action}`, {
+        method: "POST",
+        headers,
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
+      }
+      setUsers((prev) =>
+        prev.map((u) => (u.id === uid ? { ...u, status: "revoked" } : u))
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to ${action} user`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handlePage = (delta: number) => {
+    const next = page + delta
+    setPage(next)
+    fetchUsers(next)
+  }
+
+  return (
+    <div>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h2 className="font-serif text-3xl font-semibold text-text-primary">User Management</h2>
+          <p className="text-sm text-text-muted mt-1">
+            Revoke access for registered users
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={() => fetchUsers(page)}
+          disabled={isLoading}
+          className="text-text-muted hover:text-text-secondary px-3 py-2 rounded-[14px] mt-1"
+          title="Refresh"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      <Card
+        className="overflow-hidden border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-0"
+        style={{ boxShadow: "var(--shadow-soft)" }}
+      >
+        {isLoading ? (
+          <div className="p-16 text-center">
+            <p className="text-text-muted text-sm">Loading…</p>
+          </div>
+        ) : error ? (
+          <div className="p-16 text-center">
+            <p className="text-text-muted text-sm">{error}</p>
+          </div>
+        ) : users.length === 0 ? (
+          <div className="p-16 text-center">
+            <p className="text-text-muted text-sm">No users found.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-[var(--color-border-soft)]">
+                  {["Email", "Status", "Registered", "Actions"].map((h) => (
+                    <th
+                      key={h}
+                      className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr
+                    key={u.id}
+                    className="border-b border-[var(--color-border-soft)] hover:bg-[var(--color-bg-cream)] transition-colors"
+                  >
+                    <td className="py-3 px-4 text-sm text-text-primary max-w-[240px] truncate">
+                      {u.email ?? <span className="text-text-muted italic">no email</span>}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_STYLES[u.status]}`}>
+                        {u.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-xs text-text-muted whitespace-nowrap">
+                      {formatTimestamp(u.registered_at)}
+                    </td>
+                    <td className="py-3 px-4">
+                      {u.status !== "revoked" && (
+                        <button
+                          onClick={() => handleAction(u.id, "revoke")}
+                          disabled={actionLoading === u.id}
+                          className="text-xs font-medium px-3 py-1.5 rounded-[8px] bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading === u.id ? "Revoking…" : "Revoke"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!isLoading && !error && users.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--color-border-soft)]">
+            <span className="text-xs text-text-muted">
+              Showing {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + users.length}
+            </span>
+            <div className="flex gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={page === 0}
+                onClick={() => handlePage(-1)}
+                className="px-2.5 py-1.5 rounded-[10px] text-text-muted hover:text-text-secondary disabled:opacity-40"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <span className="flex items-center px-2 text-xs text-text-muted">Page {page + 1}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!hasMore}
+                onClick={() => handlePage(1)}
+                className="px-2.5 py-1.5 rounded-[10px] text-text-muted hover:text-text-secondary disabled:opacity-40"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// ── Email allowlist panel ─────────────────────────────────────────────────────
+
+interface AllowlistEntry {
+  id: string
+  email: string
+  added_at: string
+  added_by: string | null
+}
+
+function AllowlistPanel() {
+  const [entries, setEntries] = useState<AllowlistEntry[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [newEmail, setNewEmail] = useState("")
+  const [addLoading, setAddLoading] = useState(false)
+  const [removeLoading, setRemoveLoading] = useState<string | null>(null)
+
+  const fetchAllowlist = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API_BASE_URL}/api/admin/allowlist`, { headers })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
+      }
+      const data = await res.json() as { emails: AllowlistEntry[]; has_more: boolean }
+      setEntries(data.emails)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to fetch allowlist")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchAllowlist() }, [fetchAllowlist])
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newEmail.trim()) return
+    setAddLoading(true)
+    setError(null)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API_BASE_URL}/api/admin/allowlist`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ email: newEmail.trim() }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
+      }
+      setNewEmail("")
+      await fetchAllowlist()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add email")
+    } finally {
+      setAddLoading(false)
+    }
+  }
+
+  const handleRemove = async (email: string) => {
+    setRemoveLoading(email)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API_BASE_URL}/api/admin/allowlist/${encodeURIComponent(email)}`, {
+        method: "DELETE",
+        headers,
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
+      }
+      setEntries((prev) => prev.filter((e) => e.email !== email))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to remove email")
+    } finally {
+      setRemoveLoading(null)
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h2 className="font-serif text-3xl font-semibold text-text-primary">Email Allowlist</h2>
+          <p className="text-sm text-text-muted mt-1">
+            Only emails on this list can create accounts. Existing approved users are unaffected.
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={fetchAllowlist}
+          disabled={isLoading}
+          className="text-text-muted hover:text-text-secondary px-3 py-2 rounded-[14px] mt-1"
+          title="Refresh"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      <form onSubmit={handleAdd} className="flex gap-2 mb-6">
+        <input
+          type="email"
+          value={newEmail}
+          onChange={(e) => setNewEmail(e.target.value)}
+          placeholder="new@example.com"
+          className="flex-1 px-4 py-2.5 rounded-[12px] bg-white border border-[var(--color-border-soft)] text-sm text-text-primary outline-none focus:border-[var(--color-accent-terracotta)] transition-all"
+        />
+        <Button
+          type="submit"
+          disabled={addLoading || !newEmail.trim()}
+          className="px-4 py-2.5 rounded-[12px] text-sm font-medium"
+        >
+          {addLoading ? "Adding…" : "Add Email"}
+        </Button>
+      </form>
+
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-[10px] px-3 py-2.5 mb-4">
+          {error}
+        </p>
+      )}
+
+      <Card
+        className="overflow-hidden border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-0"
+        style={{ boxShadow: "var(--shadow-soft)" }}
+      >
+        {isLoading ? (
+          <div className="p-16 text-center">
+            <p className="text-text-muted text-sm">Loading…</p>
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="p-16 text-center">
+            <p className="text-text-muted text-sm">No emails on the allowlist yet.</p>
+          </div>
+        ) : (
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-[var(--color-border-soft)]">
+                {["Email", "Added", ""].map((h) => (
+                  <th
+                    key={h}
+                    className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr
+                  key={entry.id}
+                  className="border-b border-[var(--color-border-soft)] hover:bg-[var(--color-bg-cream)] transition-colors"
+                >
+                  <td className="py-3 px-4 text-sm text-text-primary">{entry.email}</td>
+                  <td className="py-3 px-4 text-xs text-text-muted whitespace-nowrap">
+                    {formatTimestamp(entry.added_at)}
+                  </td>
+                  <td className="py-3 px-4">
+                    <button
+                      onClick={() => handleRemove(entry.email)}
+                      disabled={removeLoading === entry.email}
+                      className="text-xs font-medium px-3 py-1.5 rounded-[8px] bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors disabled:opacity-50"
+                    >
+                      {removeLoading === entry.email ? "Removing…" : "Remove"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 // ── Main admin page ────────────────────────────────────────────────────────
 
 export function AdminPage() {
+  const [adminTab, setAdminTab] = useState<AdminTab>("users")
   const [tab, setTab] = useState<LogTab>("translation")
   const [logs, setLogs] = useState<(TranslationLog | TranscriptionLog | FeedbackLog)[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -348,7 +730,48 @@ export function AdminPage() {
 
   return (
     <div className="w-full animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
-      {/* Page header */}
+      {/* Top-level admin tab switcher */}
+      <div className="inline-flex gap-1.5 p-1.5 bg-[var(--color-bg-cream)] rounded-[20px] border border-[var(--color-border-soft)] mb-8">
+        <button
+          onClick={() => setAdminTab("users")}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
+            adminTab === "users"
+              ? "bg-[var(--color-bg-card)] text-[var(--color-accent-terracotta)] shadow-[var(--shadow-soft)]"
+              : "text-text-secondary hover:text-text-primary hover:bg-white/50"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Users
+        </button>
+        <button
+          onClick={() => setAdminTab("allowlist")}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
+            adminTab === "allowlist"
+              ? "bg-[var(--color-bg-card)] text-[var(--color-accent-terracotta)] shadow-[var(--shadow-soft)]"
+              : "text-text-secondary hover:text-text-primary hover:bg-white/50"
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          Allowlist
+        </button>
+        <button
+          onClick={() => setAdminTab("logs")}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
+            adminTab === "logs"
+              ? "bg-[var(--color-bg-card)] text-[var(--color-accent-terracotta)] shadow-[var(--shadow-soft)]"
+              : "text-text-secondary hover:text-text-primary hover:bg-white/50"
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          Activity Logs
+        </button>
+      </div>
+
+      {adminTab === "users" && <UsersPanel />}
+      {adminTab === "allowlist" && <AllowlistPanel />}
+
+      {adminTab === "logs" && <>
+      {/* Log tab switcher */}
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h2 className="font-serif text-3xl font-semibold text-text-primary">
@@ -369,7 +792,7 @@ export function AdminPage() {
         </Button>
       </div>
 
-      {/* Tab switcher */}
+      {/* Log type tab switcher */}
       <div className="inline-flex gap-1.5 p-1.5 bg-[var(--color-bg-cream)] rounded-[20px] border border-[var(--color-border-soft)] mb-6">
         {(Object.keys(TAB_LABELS) as LogTab[]).map((t) => (
           <button
@@ -503,6 +926,7 @@ export function AdminPage() {
           </div>
         )}
       </Card>
+      </>}
     </div>
   )
 }

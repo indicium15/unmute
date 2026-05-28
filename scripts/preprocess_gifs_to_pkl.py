@@ -17,13 +17,22 @@ def discover_sign_folders(dataset_root):
     ]
 
 def find_gif_and_json(sign_dir):
-    """Find the first .gif and .json file in the directory."""
-    gifs = glob.glob(os.path.join(sign_dir, "*.gif"))
-    jsons = glob.glob(os.path.join(sign_dir, "*.json"))
-    
-    gif_path = gifs[0] if gifs else None
-    json_path = jsons[0] if jsons else None
-    
+    """Find primary.gif and metadata.json in the sign directory."""
+    primary = os.path.join(sign_dir, "primary.gif")
+    if os.path.exists(primary):
+        gif_path = primary
+    else:
+        # Fallback: first .gif found (supports old dataset layout)
+        gifs = glob.glob(os.path.join(sign_dir, "*.gif"))
+        gif_path = gifs[0] if gifs else None
+
+    meta = os.path.join(sign_dir, "metadata.json")
+    if os.path.exists(meta):
+        json_path = meta
+    else:
+        jsons = glob.glob(os.path.join(sign_dir, "*.json"))
+        json_path = jsons[0] if jsons else None
+
     return gif_path, json_path
 
 def load_gif_frames(gif_path):
@@ -276,19 +285,32 @@ def main():
     parser.add_argument("--output", default="sgsl_processed", help="Path to output directory")
     parser.add_argument("--limit", type=int, default=None, help="Max signs to process (for testing)")
     parser.add_argument("--workers", type=int, default=None, help="Number of worker processes (default: CPU count)")
+    parser.add_argument("--only-missing", action="store_true", help="Skip signs that already have a PKL file")
     args = parser.parse_args()
-    
+
     # Determine number of workers
     num_workers = args.workers if args.workers else cpu_count()
     print(f"Using {num_workers} worker processes")
-    
+
     # Setup Output
     os.makedirs(os.path.join(args.output, "landmarks_pkl"), exist_ok=True)
-    
+
     # Discovery
     t0 = datetime.now()
     sign_folders = discover_sign_folders(args.dataset)
     print(f"Found {len(sign_folders)} potential sign folders.")
+
+    # Filter to only new-format folders (have metadata.json) when --only-missing is set
+    if args.only_missing:
+        pkl_dir = os.path.join(args.output, "landmarks_pkl")
+        existing_pkls = {f[:-len(".pkl")] for f in os.listdir(pkl_dir) if f.endswith(".pkl") and not f.endswith("_full_body_pose.pkl")}
+        before = len(sign_folders)
+        sign_folders = [
+            sf for sf in sign_folders
+            if os.path.basename(sf) not in existing_pkls
+               and os.path.exists(os.path.join(sf, "primary.gif"))
+        ]
+        print(f"--only-missing: {before - len(sign_folders)} already have PKL, {len(sign_folders)} to process.")
     
     if args.limit:
         sign_folders = sign_folders[:args.limit]
@@ -301,24 +323,34 @@ def main():
     # Task says "Resample/pad each sequence to L_max". 
     # Let's do a quick pass of opening GIFs for length.
     
+    # When adding to an existing dataset, reuse the stored L_max so padding is consistent
+    existing_meta_path = os.path.join(args.output, "meta.json")
+    inherited_max_len = 0
+    if args.only_missing and os.path.exists(existing_meta_path):
+        try:
+            with open(existing_meta_path) as f:
+                inherited_max_len = json.load(f).get("L_max", 0)
+            print(f"Inherited L_max from existing meta.json: {inherited_max_len}")
+        except Exception:
+            pass
+
     print("Pass 1: Computing L_max...")
-    max_len = 0
+    max_len = inherited_max_len
     valid_folders = []
-    
+
     for sf in sign_folders:
         gif_path, _ = find_gif_and_json(sf)
         if not gif_path:
             continue
-            
+
         try:
             with Image.open(gif_path) as im:
-                # Pillow property for frame count
                 n_frames = getattr(im, 'n_frames', 1)
                 max_len = max(max_len, n_frames)
                 valid_folders.append((sf, gif_path))
         except Exception:
             pass
-            
+
     print(f"Global L_max: {max_len}")
     if max_len == 0:
         print("No valid GIFs found.")

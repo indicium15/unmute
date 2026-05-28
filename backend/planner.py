@@ -29,9 +29,8 @@ def build_render_plan(gloss_tokens: List[str]) -> List[Dict[str, Any]]:
             item["type"] = "sign"
             # Construct paths using GCS or local static paths
             
-            # GIF: {GCS_SGLS_DATASET_ROOT}/{sign_name}/{sign_name}.gif (see gcs_storage)
             item["assets"]["gif"] = get_static_url(
-                f"{GCS_SGLS_DATASET_ROOT}/{sign_name}/{sign_name}.gif"
+                f"{GCS_SGLS_DATASET_ROOT}/{sign_name}/primary.gif"
             )
             
             # PKL: sgsl_processed/landmarks_pkl/{sign_name}.pkl

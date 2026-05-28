@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from "react"
-import { AlertCircle, BookOpen, RefreshCw, RotateCcw, Search, Target } from "lucide-react"
+import { useState, useEffect, useCallback, useMemo } from "react"
+import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 
@@ -15,34 +15,30 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}` }
 }
 
-interface QuizQuestion {
-  correct_token: string
-  sign_name?: string
-  gif_url: string
-  options: string[]
-}
-
 interface LearningSign {
   token: string
   sign_name: string
   gif_url: string
 }
 
-interface SignsResponse {
+interface LessonSummary {
+  lesson_id: string
+  lesson_name: string
+  description: string
+  emoji: string
+  sign_count: number
+}
+
+interface LessonDetail {
+  lesson_id: string
+  lesson_name: string
+  description: string
+  emoji: string
   signs: LearningSign[]
-  total: number
-  has_more: boolean
 }
 
 type AnswerState = "unanswered" | "correct" | "wrong"
-type LearningView = "quiz" | "browse" | "review"
-
-function normalizeAssetUrl(url: string) {
-  if (url.startsWith("http://") || url.startsWith("https://")) return url
-  const baseUrl = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL
-  const path = url.startsWith("/") ? url : `/${url}`
-  return `${baseUrl}${path}`
-}
+type LessonQuizState = "idle" | "question" | "answered" | "complete"
 
 function formatSignLabel(token: string) {
   return token
@@ -53,7 +49,7 @@ function formatSignLabel(token: string) {
 
 function OfflineHint({ message }: { message: string }) {
   return (
-    <div className="rounded-[14px] border border-amber-700/40 bg-amber-950/30 p-4 text-sm text-amber-200">
+    <div className="rounded-[14px] border border-amber-300 bg-amber-50 p-4 text-sm text-amber-700">
       <div className="flex gap-3">
         <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
         <p className="leading-relaxed">{message}</p>
@@ -62,285 +58,448 @@ function OfflineHint({ message }: { message: string }) {
   )
 }
 
-export function LearningPage() {
-  const [view, setView] = useState<LearningView>("quiz")
-  const [question, setQuestion] = useState<QuizQuestion | null>(null)
-  const [loadingQuiz, setLoadingQuiz] = useState(true)
-  const [quizError, setQuizError] = useState("")
-  const [selected, setSelected] = useState<string | null>(null)
-  const [answerState, setAnswerState] = useState<AnswerState>("unanswered")
-  const [score, setScore] = useState({ correct: 0, total: 0, streak: 0 })
-  const [missedSigns, setMissedSigns] = useState<LearningSign[]>([])
-  const [search, setSearch] = useState("")
-  const [signs, setSigns] = useState<LearningSign[]>([])
-  const [loadingSigns, setLoadingSigns] = useState(false)
-  const [signsError, setSignsError] = useState("")
+function shuffle<T>(arr: T[]): T[] {
+  const out = [...arr]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
 
-  const fetchQuestion = useCallback(async () => {
-    setLoadingQuiz(true)
-    setSelected(null)
-    setAnswerState("unanswered")
-    setQuizError("")
+export interface LearningPageProps {
+  onNavigate: (dest: NavMode | "home") => void
+  onSignOut: () => void
+  isAdmin?: boolean
+}
+
+export function LearningPage({ onNavigate, onSignOut, isAdmin }: LearningPageProps) {
+  const [lessons, setLessons] = useState<LessonSummary[]>([])
+  const [loadingLessons, setLoadingLessons] = useState(false)
+  const [lessonsError, setLessonsError] = useState("")
+  const [selectedLesson, setSelectedLesson] = useState<LessonDetail | null>(null)
+  const [loadingLessonDetail, setLoadingLessonDetail] = useState(false)
+  const [lessonDetailIndex, setLessonDetailIndex] = useState(0)
+
+  const [lessonQuizState, setLessonQuizState] = useState<LessonQuizState>("idle")
+  const [lessonQuizOrder, setLessonQuizOrder] = useState<LearningSign[]>([])
+  const [lessonQuizIndex, setLessonQuizIndex] = useState(0)
+  const [lessonQuizSelected, setLessonQuizSelected] = useState<string | null>(null)
+  const [lessonQuizAnswerState, setLessonQuizAnswerState] = useState<AnswerState>("unanswered")
+  const [lessonScore, setLessonScore] = useState({ correct: 0, total: 0 })
+  const [lessonMissed, setLessonMissed] = useState<LearningSign[]>([])
+
+  const fetchLessons = useCallback(async () => {
+    setLoadingLessons(true)
+    setLessonsError("")
     try {
       const headers = await authHeaders()
-      const res = await fetch(`${API_BASE_URL}/api/learning/quiz`, { headers })
-      if (!res.ok) throw new Error(res.status === 404 ? "Quiz signs were not found." : "Unable to load a quiz question.")
-      setQuestion(await res.json())
+      const res = await fetch(`${API_BASE_URL}/api/learning/lessons`, { headers })
+      if (!res.ok) throw new Error("Unable to load lessons.")
+      setLessons(await res.json())
     } catch (err) {
       console.error(err)
-      setQuestion(null)
-      setQuizError("Learning could not reach the local backend. For offline localhost development, run FastAPI with USE_GCS=false and make sure sgsl_dataset and sgsl_processed/vocab.json exist.")
+      setLessonsError("Lessons could not be loaded. Check that the backend is running.")
     } finally {
-      setLoadingQuiz(false)
+      setLoadingLessons(false)
     }
   }, [])
 
-  const fetchSigns = useCallback(async (query: string) => {
-    setLoadingSigns(true)
-    setSignsError("")
+  const fetchLessonDetail = useCallback(async (lessonId: string) => {
+    setLoadingLessonDetail(true)
+    setSelectedLesson(null)
+    setLessonQuizState("idle")
+    setLessonDetailIndex(0)
     try {
       const headers = await authHeaders()
-      const params = new URLSearchParams({ q: query, limit: "48", offset: "0" })
-      const res = await fetch(`${API_BASE_URL}/api/learning/signs?${params.toString()}`, { headers })
-      if (!res.ok) throw new Error("Unable to load signs.")
-      const data: SignsResponse = await res.json()
-      setSigns(data.signs)
+      const res = await fetch(`${API_BASE_URL}/api/learning/lessons/${lessonId}`, { headers })
+      if (!res.ok) throw new Error("Unable to load lesson.")
+      setSelectedLesson(await res.json())
     } catch (err) {
       console.error(err)
-      setSigns([])
-      setSignsError("Vocabulary browse is unavailable. Check that the local backend is running and serving local static assets.")
     } finally {
-      setLoadingSigns(false)
+      setLoadingLessonDetail(false)
     }
   }, [])
-
-  useEffect(() => { fetchQuestion() }, [fetchQuestion])
 
   useEffect(() => {
-    if (view !== "browse") return
-    const handle = window.setTimeout(() => fetchSigns(search), 250)
-    return () => window.clearTimeout(handle)
-  }, [fetchSigns, search, view])
+    if (lessons.length === 0) fetchLessons()
+  }, [fetchLessons, lessons.length])
 
-  const rememberMissedSign = (item: LearningSign) => {
-    setMissedSigns((current) => current.some((sign) => sign.token === item.token) ? current : [item, ...current].slice(0, 12))
+  const startLessonQuiz = () => {
+    if (!selectedLesson) return
+    setLessonQuizOrder(shuffle(selectedLesson.signs))
+    setLessonQuizIndex(0)
+    setLessonQuizSelected(null)
+    setLessonQuizAnswerState("unanswered")
+    setLessonScore({ correct: 0, total: 0 })
+    setLessonMissed([])
+    setLessonQuizState("question")
   }
 
-  const handleSelect = (token: string) => {
-    if (answerState !== "unanswered" || !question) return
-    setSelected(token)
-    const isCorrect = token === question.correct_token
-    setAnswerState(isCorrect ? "correct" : "wrong")
-    setScore((s) => ({
-      correct: s.correct + (isCorrect ? 1 : 0),
-      total: s.total + 1,
-      streak: isCorrect ? s.streak + 1 : 0,
-    }))
+  const currentQuizSign = lessonQuizOrder[lessonQuizIndex]
+
+  const quizOptions = useMemo(() => {
+    if (!currentQuizSign || !selectedLesson) return []
+    const others = selectedLesson.signs.filter((s) => s.token !== currentQuizSign.token)
+    const wrong = shuffle(others).slice(0, 3)
+    return shuffle([currentQuizSign, ...wrong])
+  }, [currentQuizSign, selectedLesson])
+
+  const handleQuizSelect = (token: string) => {
+    if (lessonQuizAnswerState !== "unanswered" || !currentQuizSign) return
+    setLessonQuizSelected(token)
+    const isCorrect = token === currentQuizSign.token
+    setLessonQuizAnswerState(isCorrect ? "correct" : "wrong")
+    setLessonScore((s) => ({ correct: s.correct + (isCorrect ? 1 : 0), total: s.total + 1 }))
     if (!isCorrect) {
-      rememberMissedSign({
-        token: question.correct_token,
-        sign_name: question.sign_name ?? question.correct_token,
-        gif_url: question.gif_url,
-      })
+      setLessonMissed((prev) =>
+        prev.some((s) => s.token === currentQuizSign.token) ? prev : [...prev, currentQuizSign]
+      )
     }
   }
 
-  const resetSession = () => {
-    setScore({ correct: 0, total: 0, streak: 0 })
-    setMissedSigns([])
-    setSelected(null)
-    setAnswerState("unanswered")
+  const advanceQuiz = () => {
+    const nextIndex = lessonQuizIndex + 1
+    if (nextIndex >= lessonQuizOrder.length) {
+      setLessonQuizState("complete")
+    } else {
+      setLessonQuizIndex(nextIndex)
+      setLessonQuizSelected(null)
+      setLessonQuizAnswerState("unanswered")
+      setLessonQuizState("question")
+    }
   }
 
   const optionClass = (token: string) => {
-    const base = "group flex w-full min-h-[72px] items-center gap-3 rounded-[14px] border px-4 py-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-terracotta/70 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-card sm:min-h-[76px]"
-    if (answerState === "unanswered") {
-      return cn(base, "cursor-pointer border-border-warm bg-bg-input/80 text-text-primary shadow-[inset_0_1px_0_rgba(237,229,212,0.04)] hover:-translate-y-0.5 hover:border-accent-terracotta/70 hover:bg-accent-soft/55 hover:shadow-hover active:translate-y-0")
+    const base =
+      "group flex w-full min-h-[72px] items-center gap-3 rounded-[14px] border px-4 py-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6176f7]/70 focus-visible:ring-offset-2 sm:min-h-[76px]"
+    if (lessonQuizAnswerState === "unanswered") {
+      return cn(
+        base,
+        "cursor-pointer border-gray-200 bg-gray-50 text-[#101828] hover:-translate-y-0.5 hover:border-[#6176f7]/60 hover:bg-[#6176f7]/5 hover:shadow-md active:translate-y-0"
+      )
     }
-    if (token === question?.correct_token) {
-      return cn(base, "border-emerald-500/80 bg-emerald-950/50 text-emerald-200 shadow-[0_0_0_1px_rgba(16,185,129,0.12)]")
+    if (token === currentQuizSign?.token) {
+      return cn(base, "border-emerald-400 bg-emerald-50 text-emerald-700 shadow-[0_0_0_1px_rgba(16,185,129,0.15)]")
     }
-    if (token === selected) {
-      return cn(base, "border-red-500/80 bg-red-950/50 text-red-200 shadow-[0_0_0_1px_rgba(239,68,68,0.12)]")
+    if (token === lessonQuizSelected) {
+      return cn(base, "border-red-400 bg-red-50 text-red-600 shadow-[0_0_0_1px_rgba(239,68,68,0.15)]")
     }
-    return cn(base, "border-border-soft bg-bg-input/50 text-text-muted opacity-55")
+    return cn(base, "border-gray-100 bg-gray-50/50 text-gray-400 opacity-55")
   }
 
   const optionBadgeClass = (token: string) => {
     const base = "grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold transition-colors"
-    if (answerState === "unanswered") {
-      return cn(base, "bg-accent-terracotta/15 text-accent-warm group-hover:bg-accent-terracotta group-hover:text-bg-warm")
+    if (lessonQuizAnswerState === "unanswered") {
+      return cn(base, "bg-[#6176f7]/15 text-[#6176f7] group-hover:bg-[#6176f7] group-hover:text-white")
     }
-    if (token === question?.correct_token) return cn(base, "bg-emerald-400 text-emerald-950")
-    if (token === selected) return cn(base, "bg-red-400 text-red-950")
-    return cn(base, "bg-border-soft text-text-muted")
+    if (token === currentQuizSign?.token) return cn(base, "bg-emerald-400 text-emerald-950")
+    if (token === lessonQuizSelected) return cn(base, "bg-red-400 text-red-950")
+    return cn(base, "bg-gray-200 text-gray-400")
   }
 
-  const percentage = score.total > 0 ? Math.round((score.correct / score.total) * 100) : 0
-  const reviewSigns = missedSigns.length > 0 ? missedSigns : signs.slice(0, 6)
-
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-[10px] font-semibold tracking-[0.28em] uppercase text-text-muted">Learning platform</p>
-          <h1 className="mt-1 text-2xl sm:text-3xl font-semibold text-text-primary">Learn Singapore Sign Language</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-secondary">
-            Quiz yourself, browse signs, and review missed answers.
+    <div className="min-h-screen bg-white" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
+      <AppNavbar
+        activeMode="learn"
+        onNavigate={(dest) => onNavigate(dest)}
+        onLogout={onSignOut}
+        isAdmin={isAdmin}
+      />
+
+      {/* Hero */}
+      <section className="bg-[#6176f7] pt-12 pb-8">
+        <div className="max-w-[1152px] mx-auto px-6">
+          <h1 className="text-[30px] font-bold text-white leading-9 mb-3">Learn Singapore Sign Language</h1>
+          <p className="text-[16px] text-white/80 leading-relaxed max-w-xl">
+            Work through structured lessons, then quiz yourself on what you've learned.
           </p>
         </div>
-        <Button variant="outline" onClick={resetSession} size="sm">
-          <RotateCcw className="h-4 w-4" />
-          Reset session
-        </Button>
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        {[
-          ["Score", `${score.correct}/${score.total}`],
-          ["Accuracy", score.total ? `${percentage}%` : "-"],
-          ["Streak", String(score.streak)],
-          ["Review", String(missedSigns.length)],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-[14px] border border-border-soft bg-bg-card p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">{label}</p>
-            <p className="mt-1 text-2xl font-semibold text-text-primary">{value}</p>
+      {/* Content */}
+      <div className="max-w-[1152px] mx-auto px-6 py-8 flex flex-col gap-6">
+        {/* Lessons list */}
+        {!selectedLesson && !loadingLessonDetail && (
+          <div className="rounded-[16px] border border-gray-100 bg-white shadow-sm p-6">
+            <div className="mb-5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#99a1af]">Curriculum</p>
+              <h2 className="mt-1 text-xl font-semibold text-[#101828]">Lessons</h2>
+              <p className="mt-1 text-sm text-[#6a7282]">
+                Each lesson covers a theme. Work through the signs, then take the lesson quiz.
+              </p>
+            </div>
+            {lessonsError && <div className="mb-4"><OfflineHint message={lessonsError} /></div>}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {loadingLessons
+                ? Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} className="h-32 rounded-[12px] bg-gray-100 animate-pulse" />
+                  ))
+                : lessons.map((lesson) => (
+                    <button
+                      key={lesson.lesson_id}
+                      onClick={() => fetchLessonDetail(lesson.lesson_id)}
+                      className="text-left overflow-hidden rounded-[12px] border border-gray-100 bg-gray-50 p-5 transition-all hover:-translate-y-0.5 hover:border-[#6176f7]/50 hover:shadow-md"
+                    >
+                      <div className="text-3xl mb-3">{lesson.emoji}</div>
+                      <p className="font-semibold text-[#101828] leading-snug text-[16px]">{lesson.lesson_name}</p>
+                      <p className="mt-1.5 text-xs text-[#6a7282] leading-relaxed line-clamp-2">{lesson.description}</p>
+                      <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6176f7]">
+                        {lesson.sign_count} signs
+                      </p>
+                    </button>
+                  ))}
+            </div>
           </div>
-        ))}
-      </div>
+        )}
 
-      <div className="flex gap-2 overflow-x-auto rounded-[14px] border border-border-soft bg-bg-input p-1">
-        {[
-          { key: "quiz" as LearningView, label: "Quiz", Icon: Target },
-          { key: "browse" as LearningView, label: "Browse", Icon: BookOpen },
-          { key: "review" as LearningView, label: "Review missed", Icon: RefreshCw },
-        ].map(({ key, label, Icon }) => (
-          <button
-            key={key}
-            onClick={() => setView(key)}
-            className={cn(
-              "inline-flex min-w-fit items-center gap-2 rounded-[10px] px-4 py-2 text-sm font-medium transition-all",
-              view === key ? "bg-bg-card text-accent-terracotta shadow-soft" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {view === "quiz" && (
-        <div className="rounded-[16px] border border-border-soft bg-bg-card p-4 sm:p-6">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-text-primary sm:text-xl">Which sign is being shown?</h2>
-            <Button variant="ghost" size="sm" onClick={fetchQuestion} disabled={loadingQuiz}>
-              <RefreshCw className={cn("h-4 w-4", loadingQuiz && "animate-spin")} />
-              Skip
-            </Button>
+        {loadingLessonDetail && (
+          <div className="rounded-[16px] border border-gray-100 bg-white shadow-sm p-6">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-44 rounded-[12px] bg-gray-100 animate-pulse" />
+              ))}
+            </div>
           </div>
+        )}
 
-          <div className="mx-auto flex h-[260px] w-full max-w-3xl items-center justify-center overflow-hidden rounded-[12px] border border-border-soft bg-bg-warm sm:h-[320px] lg:h-[360px]">
-            {loadingQuiz ? (
-              <div className="h-40 w-52 rounded-[12px] skeleton" />
-            ) : question ? (
+        {/* Lesson detail — one sign at a time */}
+        {selectedLesson && lessonQuizState === "idle" && (() => {
+          const sign = selectedLesson.signs[lessonDetailIndex]
+          if (!sign) return null
+          const total = selectedLesson.signs.length
+          const isFirst = lessonDetailIndex === 0
+          const isLast = lessonDetailIndex === total - 1
+          return (
+            <div className="rounded-[16px] border border-gray-100 bg-white shadow-sm overflow-hidden">
+              {/* Card header */}
+              <div className="bg-[#6176f7] px-6 pt-6 pb-5">
+                <button
+                  onClick={() => { setSelectedLesson(null); setLessonDetailIndex(0) }}
+                  className="flex items-center gap-1 text-white/80 hover:text-white transition-colors text-sm mb-4"
+                  aria-label="Back to lessons"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <h2 className="text-[26px] font-bold text-white leading-tight">{formatSignLabel(sign.token)}</h2>
+              </div>
+
+              {/* GIF area */}
+              <div className="px-6 pt-6">
+                <div className="relative rounded-[14px] border border-gray-100 bg-gray-50 overflow-hidden flex items-center justify-center" style={{ minHeight: 280 }}>
+                  <img
+                    key={sign.gif_url}
+                    src={sign.gif_url}
+                    alt={`Sign for ${sign.token}`}
+                    className="max-h-[320px] w-auto object-contain"
+                  />
+                </div>
+              </div>
+
+              {/* Sign info */}
+              <div className="px-6 pt-5 pb-6">
+                <h3 className="text-[22px] font-bold text-[#101828] mb-2">{formatSignLabel(sign.token)}</h3>
+                <div className="flex gap-2 mb-4">
+                  <span
+                    className="px-2.5 py-0.5 rounded-full text-[12px] font-semibold text-white"
+                    style={{ backgroundColor: "#6176f7" }}
+                  >
+                    {selectedLesson.lesson_name}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-[#f0fdf4] border border-[#b9f8cf] text-[#008236]">
+                    Beginner
+                  </span>
+                </div>
+                {sign.sign_name && sign.sign_name !== sign.token && (
+                  <p className="text-[15px] text-[#6a7282] leading-relaxed mb-4">{sign.sign_name}</p>
+                )}
+
+                <hr className="border-gray-100 mb-5" />
+
+                {/* Progress indicator */}
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  {selectedLesson.signs.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setLessonDetailIndex(i)}
+                      className={`h-2 rounded-full transition-all ${
+                        i === lessonDetailIndex
+                          ? "w-6 bg-[#6176f7]"
+                          : "w-2 bg-gray-200 hover:bg-gray-300"
+                      }`}
+                      aria-label={`Go to sign ${i + 1}`}
+                    />
+                  ))}
+                </div>
+                <p className="text-center text-[12px] text-[#99a1af] mb-5">
+                  {lessonDetailIndex + 1} of {total}
+                </p>
+
+                {/* Navigation buttons */}
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={isFirst}
+                    onClick={() => setLessonDetailIndex((i) => i - 1)}
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" />
+                    Previous
+                  </Button>
+                  {isLast ? (
+                    <Button
+                      className="flex-1 bg-[#6176f7] hover:bg-[#5068f0] text-white"
+                      onClick={startLessonQuiz}
+                      disabled={total < 2}
+                    >
+                      Start Quiz
+                    </Button>
+                  ) : (
+                    <Button
+                      className="flex-1 bg-[#6176f7] hover:bg-[#5068f0] text-white"
+                      onClick={() => setLessonDetailIndex((i) => i + 1)}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* Quiz */}
+        {selectedLesson && (lessonQuizState === "question" || lessonQuizState === "answered") && currentQuizSign && (
+          <div className="rounded-[16px] border border-gray-100 bg-white shadow-sm p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#99a1af]">
+                  {selectedLesson.emoji} {selectedLesson.lesson_name}
+                </p>
+                <h2 className="mt-1 text-xl font-semibold text-[#101828]">Which sign is being shown?</h2>
+              </div>
+              <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-[#6a7282]">
+                {lessonQuizIndex + 1} / {lessonQuizOrder.length}
+              </span>
+            </div>
+
+            <div className="mx-auto flex h-[260px] w-full max-w-3xl items-center justify-center overflow-hidden rounded-[12px] border border-gray-100 bg-gray-50 sm:h-[320px] lg:h-[360px]">
               <img
-                key={question.gif_url}
-                src={normalizeAssetUrl(question.gif_url)}
-                alt={`Sign for ${question.correct_token}`}
+                key={currentQuizSign.gif_url}
+                src={currentQuizSign.gif_url}
+                alt={`Sign for ${currentQuizSign.token}`}
                 className="h-full w-full object-contain"
-                onError={() => setQuizError("The GIF file could not load. In local offline mode, confirm the matching file exists under sgsl_dataset.")}
               />
-            ) : (
-              <p className="text-sm text-text-muted">No question loaded.</p>
+            </div>
+
+            <div className="mx-auto mt-5 grid w-full max-w-4xl grid-cols-1 gap-3 sm:grid-cols-2">
+              {quizOptions.map((sign, index) => (
+                <button
+                  key={sign.token}
+                  onClick={() => handleQuizSelect(sign.token)}
+                  disabled={lessonQuizAnswerState !== "unanswered"}
+                  className={optionClass(sign.token)}
+                >
+                  <span className={optionBadgeClass(sign.token)}>{String.fromCharCode(65 + index)}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-base font-semibold leading-tight text-inherit sm:text-lg">
+                      {formatSignLabel(sign.token)}
+                    </span>
+                    <span className="mt-1 block truncate text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6a7282] group-hover:text-[#4a5565]">
+                      {sign.token}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {lessonQuizAnswerState !== "unanswered" && (
+              <div className="mx-auto w-full max-w-4xl">
+                <Button
+                  className="mt-4 w-full bg-[#6176f7] hover:bg-[#5068f0] text-white"
+                  onClick={advanceQuiz}
+                >
+                  {lessonQuizIndex + 1 < lessonQuizOrder.length ? "Next sign" : "See results"}
+                </Button>
+              </div>
             )}
           </div>
+        )}
 
-          {quizError && <div className="mt-3"><OfflineHint message={quizError} /></div>}
+        {/* Quiz results */}
+        {selectedLesson && lessonQuizState === "complete" && (
+          <div className="rounded-[16px] border border-gray-100 bg-white shadow-sm p-6">
+            <div className="mb-2 flex items-start gap-3">
+              <button
+                onClick={() => { setSelectedLesson(null); setLessonQuizState("idle") }}
+                className="mt-1 shrink-0 text-[#6a7282] hover:text-[#101828] transition-colors"
+                aria-label="Back to lessons"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#99a1af]">Quiz complete</p>
+                <h2 className="mt-1 text-xl font-semibold text-[#101828]">{selectedLesson.lesson_name}</h2>
+              </div>
+            </div>
 
-          <div className="mx-auto mt-5 grid w-full max-w-4xl grid-cols-1 gap-3 sm:grid-cols-2">
-            {loadingQuiz
-              ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-[76px] rounded-[14px] skeleton" />)
-              : question?.options.map((token, index) => (
-                  <button key={token} onClick={() => handleSelect(token)} disabled={answerState !== "unanswered"} className={optionClass(token)}>
-                    <span className={optionBadgeClass(token)}>{String.fromCharCode(65 + index)}</span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-base font-semibold leading-tight text-inherit sm:text-lg">{formatSignLabel(token)}</span>
-                      <span className="mt-1 block truncate text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted group-hover:text-text-secondary">
-                        {token}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-          </div>
+            <div className="my-8 flex flex-col items-center gap-2 text-center">
+              <p className="text-5xl font-semibold text-[#101828]">
+                {lessonScore.correct}/{lessonScore.total}
+              </p>
+              <p className="text-sm text-[#6a7282]">
+                {lessonScore.correct === lessonScore.total
+                  ? "Perfect score! 🎉"
+                  : lessonScore.correct / lessonScore.total >= 0.7
+                  ? "Good work — review the missed signs below."
+                  : "Keep practicing — try the quiz again."}
+              </p>
+            </div>
 
-          {answerState !== "unanswered" && (
-            <div className="mx-auto w-full max-w-4xl">
-              <Button className="mt-4 w-full" onClick={fetchQuestion}>
-                Next sign
+            {lessonMissed.length > 0 && (
+              <div className="mb-6">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#99a1af]">Missed signs</p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {lessonMissed.map((sign) => (
+                    <article key={sign.token} className="overflow-hidden rounded-[12px] border border-red-200 bg-red-50">
+                      <div className="flex h-36 items-center justify-center bg-gray-100">
+                        <img
+                          src={sign.gif_url}
+                          alt={`Sign for ${sign.token}`}
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-2 p-3">
+                        <Badge variant="outline">{sign.token}</Badge>
+                        <span className="truncate text-xs text-[#6a7282]">{sign.sign_name}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                className="flex-1 bg-[#6176f7] hover:bg-[#5068f0] text-white"
+                onClick={startLessonQuiz}
+              >
+                Try again
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setLessonQuizState("idle")}
+              >
+                Back to lesson
               </Button>
             </div>
-          )}
-        </div>
-      )}
-
-      {view === "browse" && (
-        <div className="rounded-[16px] border border-border-soft bg-bg-card p-4">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Vocabulary</p>
-              <h2 className="mt-1 text-lg font-semibold text-text-primary">Browse signs</h2>
-            </div>
-            <div className="relative w-full sm:max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search vocabulary" className="pl-9" />
-            </div>
           </div>
-          {signsError && <OfflineHint message={signsError} />}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {loadingSigns ? Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-44 rounded-[12px] skeleton" />) : signs.map((sign) => (
-              <article key={sign.token} className="overflow-hidden rounded-[12px] border border-border-soft bg-bg-input">
-                <div className="flex h-36 items-center justify-center bg-bg-warm">
-                  <img src={normalizeAssetUrl(sign.gif_url)} alt={`Sign for ${sign.token}`} className="h-full w-full object-contain" />
-                </div>
-                <div className="flex items-center justify-between gap-2 p-3">
-                  <Badge variant="outline">{sign.token}</Badge>
-                  <span className="truncate text-xs text-text-muted">{sign.sign_name}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-          {!loadingSigns && !signsError && signs.length === 0 && (
-            <p className="py-8 text-center text-sm text-text-muted">No signs matched that search.</p>
-          )}
-        </div>
-      )}
-
-      {view === "review" && (
-        <div className="rounded-[16px] border border-border-soft bg-bg-card p-4">
-          <div className="mb-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Review</p>
-            <h2 className="mt-1 text-lg font-semibold text-text-primary">Missed signs from this session</h2>
-            <p className="mt-1 text-sm text-text-secondary">
-              Missed quiz answers appear here until you reset the session.
-            </p>
-          </div>
-          {missedSigns.length === 0 && (
-            <OfflineHint message="No missed signs yet. Take a quiz or browse vocabulary while you build the session review list." />
-          )}
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {reviewSigns.map((sign) => (
-              <article key={sign.token} className="overflow-hidden rounded-[12px] border border-border-soft bg-bg-input">
-                <div className="flex h-40 items-center justify-center bg-bg-warm">
-                  <img src={normalizeAssetUrl(sign.gif_url)} alt={`Sign for ${sign.token}`} className="h-full w-full object-contain" />
-                </div>
-                <div className="p-3">
-                  <Badge variant="accent">{sign.token}</Badge>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

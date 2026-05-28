@@ -23,6 +23,6 @@ EXPOSE 8080
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/app/.venv/bin:$PATH"
 ENV USE_GCS=true
-ENV GCS_BUCKET_NAME=unmute-c9757-datasets
+ENV GCS_BUCKET_NAME=kinnect-sgsl-datasets
 
 CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]

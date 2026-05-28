@@ -167,19 +167,191 @@ def _serialize_doc(data: dict) -> dict:
     return result
 
 
-def is_admin(user_id: str) -> bool:
-    """Return ``True`` if *user_id* has a document in the ``admins`` collection.
+# ── User management (approval workflow) ───────────────────────────────────────
 
-    The ``admins`` collection uses the Firebase UID as the document ID, with
-    optional metadata fields (``user_email``, ``added_at``).
+def register_user(uid: str, email: Optional[str], initial_status: str = "approved") -> dict:
+    """Upsert a user into the ``users`` collection.
+
+    Creates the document with ``initial_status`` if it doesn't exist.
+    If the user already exists with ``pending`` status, promotes them to ``approved``
+    (handles users who were pending before the allowlist was introduced).
+    Returns ``{"is_new": bool, "status": str}`` in both cases.
     """
+    db = get_db()
+    if db is None:
+        return {"is_new": False, "status": initial_status}
+    try:
+        doc_ref = db.collection("users").document(uid)
+        doc = doc_ref.get()
+        if doc.exists:
+            existing_status = doc.to_dict().get("status", "pending")
+            if existing_status == "pending":
+                doc_ref.update({
+                    "status": "approved",
+                    "approved_at": datetime.now(timezone.utc),
+                    "approved_by": "allowlist",
+                })
+                logger.info("[DB] Promoted pending user %s to approved via allowlist", uid)
+                return {"is_new": False, "status": "approved"}
+            return {"is_new": False, "status": existing_status}
+        doc_ref.set({
+            "uid": uid,
+            "email": email,
+            "status": initial_status,
+            "registered_at": datetime.now(timezone.utc),
+        })
+        logger.info("[DB] Registered new user %s with status=%s", uid, initial_status)
+        return {"is_new": True, "status": initial_status}
+    except Exception as exc:
+        logger.error("[DB] Failed to register user %s: %s", uid, exc)
+        return {"is_new": False, "status": initial_status}
+
+
+def get_user_status(uid: str) -> Optional[str]:
+    """Return the user's approval status or ``None`` if not found."""
+    db = get_db()
+    if db is None:
+        return None
+    try:
+        doc = db.collection("users").document(uid).get()
+        if doc.exists:
+            return doc.to_dict().get("status")
+        return None
+    except Exception as exc:
+        logger.error("[DB] Failed to get user status for %s: %s", uid, exc)
+        return None
+
+
+def is_approved_user(uid: str, decoded_token: dict) -> bool:
+    """Return ``True`` if the user has the admin custom claim or an approved Firestore status."""
+    if decoded_token.get("admin") is True:
+        return True
+    return get_user_status(uid) == "approved"
+
+
+# ── Email allowlist ───────────────────────────────────────────────────────────
+
+def is_email_allowed(email: str) -> bool:
+    """Return ``True`` if the email exists in the ``allowed_emails`` collection."""
     db = get_db()
     if db is None:
         return False
     try:
-        return db.collection("admins").document(user_id).get().exists
+        return db.collection("allowed_emails").document(email.strip().lower()).get().exists
     except Exception as exc:
-        logger.error("[DB] Failed to check admin status for %s: %s", user_id, exc)
+        logger.error("[DB] Failed to check allowed_emails for %s: %s", email, exc)
+        return False
+
+
+def add_allowed_email(email: str, added_by: Optional[str] = None) -> bool:
+    """Add an email to the allowlist. Idempotent."""
+    db = get_db()
+    if db is None:
+        return False
+    try:
+        doc_id = email.strip().lower()
+        db.collection("allowed_emails").document(doc_id).set({
+            "email": doc_id,
+            "added_at": datetime.now(timezone.utc),
+            "added_by": added_by,
+        })
+        logger.info("[DB] Added %s to allowlist (by %s)", doc_id, added_by)
+        return True
+    except Exception as exc:
+        logger.error("[DB] Failed to add allowed email %s: %s", email, exc)
+        return False
+
+
+def remove_allowed_email(email: str) -> bool:
+    """Remove an email from the allowlist."""
+    db = get_db()
+    if db is None:
+        return False
+    try:
+        db.collection("allowed_emails").document(email.strip().lower()).delete()
+        logger.info("[DB] Removed %s from allowlist", email.strip().lower())
+        return True
+    except Exception as exc:
+        logger.error("[DB] Failed to remove allowed email %s: %s", email, exc)
+        return False
+
+
+def get_allowed_emails(limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
+    """Return a page of allowed emails ordered by added_at descending."""
+    db = get_db()
+    if db is None:
+        return [], False
+    try:
+        docs = list(
+            db.collection("allowed_emails")
+            .order_by("added_at", direction="DESCENDING")
+            .limit(limit + 1)
+            .offset(offset)
+            .stream()
+        )
+        has_more = len(docs) > limit
+        return [
+            {"id": d.id, **_serialize_doc(d.to_dict())} for d in docs[:limit]
+        ], has_more
+    except Exception as exc:
+        logger.error("[DB] Failed to fetch allowed emails: %s", exc)
+        return [], False
+
+
+def get_all_users(limit: int = 50, offset: int = 0) -> tuple[list[dict], bool]:
+    """Return a page of all users ordered by registration date descending."""
+    db = get_db()
+    if db is None:
+        return [], False
+    try:
+        docs = list(
+            db.collection("users")
+            .order_by("registered_at", direction="DESCENDING")
+            .limit(limit + 1)
+            .offset(offset)
+            .stream()
+        )
+        has_more = len(docs) > limit
+        return [
+            {"id": doc.id, **_serialize_doc(doc.to_dict())} for doc in docs[:limit]
+        ], has_more
+    except Exception as exc:
+        logger.error("[DB] Failed to fetch users: %s", exc)
+        return [], False
+
+
+def approve_user(uid: str, approved_by: Optional[str] = None) -> bool:
+    """Set user status to ``approved``."""
+    db = get_db()
+    if db is None:
+        return False
+    try:
+        db.collection("users").document(uid).update({
+            "status": "approved",
+            "approved_at": datetime.now(timezone.utc),
+            "approved_by": approved_by,
+        })
+        logger.info("[DB] User %s approved by %s", uid, approved_by)
+        return True
+    except Exception as exc:
+        logger.error("[DB] Failed to approve user %s: %s", uid, exc)
+        return False
+
+
+def revoke_user(uid: str) -> bool:
+    """Set user status to ``revoked``."""
+    db = get_db()
+    if db is None:
+        return False
+    try:
+        db.collection("users").document(uid).update({
+            "status": "revoked",
+            "revoked_at": datetime.now(timezone.utc),
+        })
+        logger.info("[DB] User %s revoked", uid)
+        return True
+    except Exception as exc:
+        logger.error("[DB] Failed to revoke user %s: %s", uid, exc)
         return False
 
 

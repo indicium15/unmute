@@ -26,10 +26,9 @@ _init_firebase()
 
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Security(_security)) -> dict:
-    """FastAPI dependency that verifies a Firebase ID token.
+    """Verify a Firebase ID token and return the decoded payload.
 
-    Returns the decoded token payload (includes uid, email, etc.).
-    Raises HTTP 401 if the token is missing or invalid.
+    Does NOT check approval status — use for admin routes or the register endpoint.
     """
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -39,3 +38,24 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Security(_security)
     except Exception as exc:
         print(f"[Auth] Firebase ID token verification failed: {type(exc).__name__}: {exc}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+def verify_approved_token(credentials: HTTPAuthorizationCredentials = Security(_security)) -> dict:
+    """Verify a Firebase ID token AND check that the user is approved.
+
+    Raises HTTP 403 if the account is pending or revoked.
+    Use this for all user-facing API endpoints.
+    """
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        decoded = auth.verify_id_token(credentials.credentials)
+    except Exception as exc:
+        print(f"[Auth] Firebase ID token verification failed: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    import database as db_module
+    if not db_module.is_approved_user(decoded.get("uid"), decoded):
+        raise HTTPException(status_code=403, detail="Account pending approval")
+
+    return decoded

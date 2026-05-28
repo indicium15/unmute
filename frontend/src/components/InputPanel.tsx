@@ -113,7 +113,7 @@ export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, resul
               className={cn(
                 "inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
                 "text-text-muted hover:bg-bg-card hover:text-text-secondary disabled:pointer-events-none disabled:opacity-45",
-                isRecording && "bg-accent-soft text-accent-terracotta shadow-[0_0_0_6px_rgba(217,112,64,0.08)]"
+                isRecording && "bg-accent-soft text-accent-terracotta shadow-[0_0_0_6px_rgba(97,118,247,0.10)]"
               )}
             >
               {isRecording ? <Square className="h-4 w-4 fill-current" /> : <Mic className="h-4 w-4" />}
@@ -132,7 +132,7 @@ export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, resul
               title="Translate"
               className={cn(
                 "inline-flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200",
-                "bg-text-primary text-bg-warm shadow-[0_6px_20px_rgba(0,0,0,0.35)] hover:-translate-y-px hover:bg-white",
+                "bg-[#101828] text-white shadow-[0_4px_14px_rgba(0,0,0,0.20)] hover:-translate-y-px hover:bg-[#1e2939]",
                 "active:translate-y-0 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-35 disabled:shadow-none"
               )}
             >
@@ -146,7 +146,7 @@ export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, resul
         )}
 
         {(error || voiceError) && (
-          <div className="flex gap-2 rounded-[12px] border border-red-800/40 bg-red-950/40 px-3 py-2.5 text-sm text-red-300">
+          <div className="flex gap-2 rounded-[12px] border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-600">
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <span>{error || voiceError}</span>
           </div>
@@ -169,8 +169,8 @@ export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, resul
             </div>
 
             {unmatched.length > 0 && (
-              <div className="mt-4 rounded-[14px] border border-red-800/30 bg-red-950/20 px-3 py-3">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-red-300/70">
+              <div className="mt-4 rounded-[14px] border border-red-200 bg-red-50 px-3 py-3">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-red-500">
                   Unmatched
                 </p>
                 <div className="flex flex-wrap gap-2">
