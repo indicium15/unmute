@@ -60,9 +60,9 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
           />
         </div>
 
-        <div className="relative max-w-[1152px] mx-auto px-6 py-[60px] flex flex-col items-center gap-7">
+        <div className="relative max-w-[1152px] mx-auto px-6 py-10 sm:py-[60px] flex flex-col items-center gap-7">
           {/* Heading */}
-          <h1 className="text-[60px] font-bold leading-[75px] text-[#101828] text-center whitespace-nowrap">
+          <h1 className="text-4xl sm:text-[60px] font-bold leading-tight sm:leading-[75px] text-[#101828] text-center">
             Learn <span className="text-[#6176f7]">SgSL</span> with ease
           </h1>
 
@@ -142,15 +142,15 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
 
       {/* Info Section */}
       <section className="bg-[#6176f7]">
-        <div className="max-w-[1152px] mx-auto px-6 py-0 h-[416px] flex items-center gap-12">
-          <div className="flex flex-col gap-5 max-w-[468px]">
-            <h2 className="text-[30px] font-bold leading-[37.5px] text-white">
+        <div className="max-w-[1152px] mx-auto px-6 py-10 sm:py-0 sm:h-[416px] flex flex-col sm:flex-row items-center gap-8 sm:gap-12">
+          <div className="flex flex-col gap-5 sm:max-w-[468px]">
+            <h2 className="text-2xl sm:text-[30px] font-bold leading-tight sm:leading-[37.5px] text-white">
               Bridging communication gaps in Singapore
             </h2>
             <p className="text-[14px] font-normal leading-[22.75px] text-white/80">
               SgSL (Singapore Sign Language) is the primary language of the Deaf community in Singapore. Our platform helps both Deaf and hearing individuals communicate effectively.
             </p>
-            <div className="flex items-center gap-5">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={() => onNavigate("dictionary")}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[14px] bg-white text-[#6176f7] text-[14px] font-semibold hover:bg-gray-50 transition-colors"
@@ -168,12 +168,12 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
             </div>
           </div>
 
-          <div className="flex-1 flex items-center justify-center h-full overflow-hidden">
+          <div className="flex-1 flex items-center justify-center sm:h-full overflow-hidden">
             <img
               src="/home/people-signing.png"
               alt="Two people communicating in sign language"
-              className="h-[386px] object-contain object-center"
-              style={{ width: "353px", objectPosition: "center" }}
+              className="h-48 sm:h-[386px] object-contain object-center"
+              style={{ maxWidth: "353px", objectPosition: "center" }}
             />
           </div>
         </div>
@@ -182,7 +182,7 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
       {/* Footer */}
       <footer className="bg-[#f9fafb] border-t border-gray-100">
         <div className="max-w-[1152px] mx-auto px-6 pt-10 pb-6">
-          <div className="grid grid-cols-3 gap-24 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-16 mb-8">
             {/* Brand */}
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
@@ -238,7 +238,7 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
           </div>
 
           {/* Bottom bar */}
-          <div className="border-t border-[#e5e7eb] pt-6 flex items-center justify-between">
+          <div className="border-t border-[#e5e7eb] pt-6 flex flex-col sm:flex-row items-center gap-2 sm:justify-between">
             <p className="text-[12px] text-[#99a1af]">© 2026 Kinnect. All rights reserved.</p>
             <p className="text-[12px] text-[#99a1af]">
               Sign data sourced from{" "}
