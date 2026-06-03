@@ -484,3 +484,86 @@ def get_feedback_logs(
     except Exception as exc:
         logger.error("[DB] Failed to fetch feedback logs: %s", exc)
         return [], False
+
+
+# ── Dashboard stats ───────────────────────────────────────────────────────────
+
+def get_dashboard_stats() -> dict:
+    """Return aggregate stats for the admin dashboard."""
+    db = get_db()
+    if db is None:
+        return {"total_users": 0, "queries_last_30_days": 0, "active_users_30d": 0, "queries_by_day": []}
+
+    from datetime import timedelta
+    from collections import defaultdict
+
+    try:
+        total_users = len(list(db.collection("users").stream()))
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        query_docs = list(
+            db.collection("translation_logs")
+            .where("timestamp", ">=", cutoff)
+            .stream()
+        )
+
+        active_user_ids: set[str] = set()
+        by_day: dict[str, int] = defaultdict(int)
+
+        for doc in query_docs:
+            data = doc.to_dict()
+            ts = data.get("timestamp")
+            uid = data.get("user_id")
+            if uid:
+                active_user_ids.add(uid)
+            if ts:
+                day = ts[:10] if isinstance(ts, str) else ts.date().isoformat()
+                by_day[day] += 1
+
+        today = datetime.now(timezone.utc).date()
+        queries_by_day = [
+            {
+                "date": (d := (today - timedelta(days=i)).isoformat()),
+                "count": by_day.get(d, 0),
+            }
+            for i in range(29, -1, -1)
+        ]
+
+        return {
+            "total_users": total_users,
+            "queries_last_30_days": len(query_docs),
+            "active_users_30d": len(active_user_ids),
+            "queries_by_day": queries_by_day,
+        }
+    except Exception as exc:
+        logger.error("[DB] Failed to get dashboard stats: %s", exc)
+        return {"total_users": 0, "queries_last_30_days": 0, "active_users_30d": 0, "queries_by_day": []}
+
+
+# ── Admin claim management ────────────────────────────────────────────────────
+
+def set_user_admin(uid: str, is_admin: bool, set_by: Optional[str] = None) -> bool:
+    """Set or remove the ``admin`` Firebase custom claim and mirror it to Firestore."""
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        user_record = firebase_auth.get_user(uid)
+        claims = dict(user_record.custom_claims or {})
+        if is_admin:
+            claims["admin"] = True
+        else:
+            claims.pop("admin", None)
+        firebase_auth.set_custom_user_claims(uid, claims)
+
+        db = get_db()
+        if db is not None:
+            update: dict = {"is_admin": is_admin, "admin_updated_at": datetime.now(timezone.utc)}
+            if set_by:
+                update["admin_set_by"] = set_by
+            db.collection("users").document(uid).update(update)
+
+        logger.info("[DB] Admin claim set to %s for user %s (by %s)", is_admin, uid, set_by)
+        return True
+    except Exception as exc:
+        logger.error("[DB] Failed to set admin claim for %s: %s", uid, exc)
+        return False

@@ -54,6 +54,7 @@ export function useTranslation() {
   const [result, setResult] = useState<TranslationResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [retryAfter, setRetryAfter] = useState<number | null>(null)
 
   const translate = useCallback(async (text: string): Promise<TranslationResult | null> => {
     setIsLoading(true)
@@ -66,11 +67,19 @@ export function useTranslation() {
         body: JSON.stringify({ text }),
       })
 
+      if (res.status === 429) {
+        const retryAfterSecs = parseInt(res.headers.get("Retry-After") || "60", 10)
+        setRetryAfter(Date.now() + retryAfterSecs * 1000)
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || "Rate limit exceeded. Please wait before translating again.")
+      }
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.detail || "Translation failed")
       }
 
+      setRetryAfter(null)
       const data: TranslationResult = await res.json()
       setResult(data)
       return data
@@ -108,6 +117,7 @@ export function useTranslation() {
     setResult,
     isLoading,
     error,
+    retryAfter,
     translate,
     fetchLandmarks,
     clearResult,

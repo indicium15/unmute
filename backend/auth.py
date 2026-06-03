@@ -4,9 +4,17 @@ from firebase_admin import credentials, auth
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+# Set AUTH_ENABLED=false to disable authentication entirely (demo / open-access mode).
+# All existing Firebase verification code remains intact; flip the flag to re-enable.
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() != "false"
+
+_DEMO_USER = {"uid": "demo", "email": "demo@kinnect.app", "admin": False}
+
 _security = HTTPBearer(auto_error=False)
 
 def _init_firebase():
+    if not AUTH_ENABLED:
+        return
     if firebase_admin._apps:
         return
     # Option 1: inline JSON via env var (avoids Secret Manager)
@@ -30,6 +38,8 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Security(_security)
 
     Does NOT check approval status — use for admin routes or the register endpoint.
     """
+    if not AUTH_ENABLED:
+        return _DEMO_USER
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
@@ -40,12 +50,36 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Security(_security)
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
+def optional_approved_token(credentials: HTTPAuthorizationCredentials = Security(_security)):
+    """Optionally verify a Firebase ID token. Returns None if no credentials provided.
+
+    Use for endpoints that are public but can also accept authenticated users.
+    """
+    if not AUTH_ENABLED:
+        return _DEMO_USER
+    if not credentials:
+        return None
+    try:
+        decoded = auth.verify_id_token(credentials.credentials)
+    except Exception as exc:
+        print(f"[Auth] Firebase ID token verification failed: {type(exc).__name__}: {exc}")
+        return None
+
+    import database as db_module
+    if not db_module.is_approved_user(decoded.get("uid"), decoded):
+        return None
+
+    return decoded
+
+
 def verify_approved_token(credentials: HTTPAuthorizationCredentials = Security(_security)) -> dict:
     """Verify a Firebase ID token AND check that the user is approved.
 
     Raises HTTP 403 if the account is pending or revoked.
     Use this for all user-facing API endpoints.
     """
+    if not AUTH_ENABLED:
+        return _DEMO_USER
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:

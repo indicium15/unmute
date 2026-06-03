@@ -10,18 +10,17 @@ interface HomePageProps {
   onVoiceResult?: (result: TranslationResult) => void
   onLogout?: () => void
   isAdmin?: boolean
+  isLoggedIn?: boolean
 }
 
 const SUGGESTED_PHRASES = [
-  "Hello my name is",
-  "Thank you very much",
-  "Where is the school",
-  "I love Singapore",
-  "Please help me",
-  "Good morning everyone",
+  "I love durian, it is delicious",
+  "Take the MRT to Orchard Road for shopping",
+  "Let's eat chicken rice for lunch",
+  "I am hungry, want to go for supper tonight?",
 ]
 
-export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isAdmin }: HomePageProps) {
+export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isAdmin, isLoggedIn = true }: HomePageProps) {
   const [inputText, setInputText] = useState("")
 
   const { isRecording, isProcessing, toggleRecording } = useVoiceRecording({
@@ -30,29 +29,23 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
   })
 
   const handleTranslate = () => {
-    if (onTranslate) {
-      onTranslate(inputText.trim())
-    } else {
-      onNavigate("translate")
-    }
+    const text = inputText.trim()
+    if (!text) return
+    onTranslate?.(text)
   }
 
   const handlePhrase = (phrase: string) => {
-    if (onTranslate) {
-      onTranslate(phrase)
-    } else {
-      setInputText(phrase)
-      onNavigate("translate")
-    }
+    onTranslate?.(phrase)
   }
 
   return (
     <div className="min-h-screen bg-white font-sans" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
       <AppNavbar
-        activeMode="translate"
+        activeMode="home"
         onNavigate={onNavigate}
         onLogout={onLogout ?? (() => {})}
         isAdmin={isAdmin}
+        isLoggedIn={isLoggedIn}
       />
 
       {/* Hero Section */}

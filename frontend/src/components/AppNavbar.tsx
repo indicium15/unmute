@@ -1,21 +1,34 @@
-import { LogOut } from "lucide-react"
+import { LogOut, LogIn } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-export type NavMode = "translate" | "learn" | "dictionary" | "admin"
+const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED !== "false"
+
+export type NavMode = "home" | "translate" | "learn" | "dictionary" | "admin"
 
 interface AppNavbarProps {
   activeMode: NavMode
   onNavigate: (mode: NavMode) => void
   onLogout: () => void
   isAdmin?: boolean
+  isLoggedIn?: boolean
 }
 
-export function AppNavbar({ activeMode, onNavigate, onLogout, isAdmin }: AppNavbarProps) {
+export function AppNavbar({ activeMode, onNavigate, onLogout, isAdmin, isLoggedIn = true }: AppNavbarProps) {
+  const handleAuthClick = () => {
+    console.debug("[Navbar][auth-click]", {
+      activeMode,
+      isLoggedIn,
+      pathname: window.location.pathname,
+      action: isLoggedIn ? "logout" : "login",
+    })
+    onLogout()
+  }
+
   return (
     <div className="sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
       <div className="max-w-[1440px] mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
         <button
-          onClick={() => onNavigate("translate")}
+          onClick={() => onNavigate("home")}
           className="flex items-center gap-2.5 flex-shrink-0"
         >
           <div className="w-9 h-9 rounded-[14px] bg-[#6176f7] shadow flex items-center justify-center flex-shrink-0">
@@ -30,7 +43,8 @@ export function AppNavbar({ activeMode, onNavigate, onLogout, isAdmin }: AppNavb
         <nav className="hidden sm:flex items-center gap-1">
           {(
             [
-              { mode: "translate" as NavMode, label: "Home" },
+              { mode: "home" as NavMode, label: "Home" },
+              { mode: "translate" as NavMode, label: "Translate" },
               { mode: "dictionary" as NavMode, label: "Dictionary" },
               { mode: "learn" as NavMode, label: "Learn SgSL" },
               ...(isAdmin ? [{ mode: "admin" as NavMode, label: "Admin" }] : []),
@@ -51,13 +65,15 @@ export function AppNavbar({ activeMode, onNavigate, onLogout, isAdmin }: AppNavb
           ))}
         </nav>
 
-        <button
-          onClick={onLogout}
-          title="Sign out"
-          className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-[#6a7282] hover:text-[#4a5565] hover:bg-gray-100 transition-all duration-200 flex-shrink-0"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
+        {AUTH_ENABLED && (
+          <button
+            onClick={handleAuthClick}
+            title={isLoggedIn ? "Sign out" : "Sign in"}
+            className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-[#6a7282] hover:text-[#4a5565] hover:bg-gray-100 transition-all duration-200 flex-shrink-0"
+          >
+            {isLoggedIn ? <LogOut className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
+          </button>
+        )}
       </div>
     </div>
   )

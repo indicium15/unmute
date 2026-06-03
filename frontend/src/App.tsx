@@ -10,50 +10,85 @@ import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 import { useTranslation, type TranslationResult } from "@/hooks/useTranslation"
 import { useSignPlayback } from "@/hooks/useSignPlayback"
 import { useAuth } from "@/contexts/useAuth"
-import { Shield, GraduationCap, Home, BookOpen } from "lucide-react"
+import { Shield, GraduationCap, Home, BookOpen, Languages } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-type AppMode = NavMode
+type AppMode = NavMode | "login"
 
 const NAV_ITEMS = [
-  { mode: "translate" as AppMode, path: "/translate", label: "Home", Icon: Home },
+  { mode: "home" as AppMode, path: "/home", label: "Home", Icon: Home },
+  { mode: "translate" as AppMode, path: "/translate", label: "Translate", Icon: Languages },
   { mode: "dictionary" as AppMode, path: "/dictionary", label: "Dictionary", Icon: BookOpen },
   { mode: "learn" as AppMode, path: "/learn", label: "Learn SgSL", Icon: GraduationCap },
 ]
 
 function modeFromPath(pathname: string): AppMode {
+  if (pathname === "/login") return "login"
+  if (pathname === "/translate") return "translate"
   const mode = NAV_ITEMS.find((item) => item.path === pathname)?.mode
   if (mode) return mode
   if (pathname === "/admin") return "admin"
-  return "translate"
+  return "home"
 }
 
 function pathForMode(mode: AppMode) {
+  if (mode === "login") return "/login"
   if (mode === "admin") return "/admin"
-  return NAV_ITEMS.find((item) => item.mode === mode)?.path ?? "/translate"
+  if (mode === "translate") return "/translate"
+  return NAV_ITEMS.find((item) => item.mode === mode)?.path ?? "/home"
 }
 
 function isKnownPath(pathname: string) {
-  return pathname === "/admin" || NAV_ITEMS.some((item) => item.path === pathname)
+  return pathname === "/login" || pathname === "/admin" || pathname === "/translate" || NAV_ITEMS.some((item) => item.path === pathname)
 }
 
 function App() {
   const { user, loading, logout, approvalStatus, isAdmin } = useAuth()
   const [mode, setModeState] = useState<AppMode>(() => modeFromPath(window.location.pathname))
-  const effectiveMode: AppMode = mode === "admin" && !isAdmin ? "translate" : mode
-  const { result, setResult, isLoading, error, translate } = useTranslation()
+  const effectiveMode: AppMode = mode === "admin" && !isAdmin ? "home" : mode
+  const { result, setResult, isLoading, error, retryAfter, translate } = useTranslation()
   const { isPlaying, currentToken, currentGifUrl, currentPlaybackKey, playSequence, stopPlayback } = useSignPlayback()
-  const [hasAttemptedTranslation, setHasAttemptedTranslation] = useState(false)
+  const [pendingInput, setPendingInput] = useState<string | undefined>(undefined)
 
   useEffect(() => {
+    console.debug("[App][init]", {
+      pathname: window.location.pathname,
+      mode: modeFromPath(window.location.pathname),
+    })
     if (window.location.pathname === "/" || !isKnownPath(window.location.pathname)) {
-      window.history.replaceState(null, "", "/translate")
+      window.history.replaceState(null, "", "/home")
     }
 
     const handlePopState = () => setModeState(modeFromPath(window.location.pathname))
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
   }, [])
+
+  // When user signs out, always redirect to home from protected pages.
+  useEffect(() => {
+    if (!loading && !user && (mode === "translate" || mode === "admin")) {
+      console.debug("[App][unauth-guard]", {
+        fromMode: mode,
+        pathname: window.location.pathname,
+        action: "redirect:/home",
+      })
+      window.history.replaceState(null, "", "/home")
+      setModeState("home")
+    }
+  }, [user, loading, mode])
+
+  // Once authenticated, leave /login and continue to translate flow.
+  useEffect(() => {
+    if (!loading && user && mode === "login") {
+      console.debug("[App][post-login]", {
+        fromMode: mode,
+        pathname: window.location.pathname,
+        action: "redirect:/translate",
+      })
+      window.history.replaceState(null, "", "/translate")
+      setModeState("translate")
+    }
+  }, [user, loading, mode])
 
   const handleTranslate = useCallback(async (text: string) => {
     stopPlayback()
@@ -64,15 +99,15 @@ function App() {
     return translationResult
   }, [translate, playSequence, stopPlayback])
 
-  const handleLandingTranslate = useCallback(async (text: string) => {
-    setHasAttemptedTranslation(true)
-    if (!text) return
-    stopPlayback()
-    const translationResult = await translate(text)
-    if (translationResult && translationResult.plan.length > 0) {
-      playSequence(translationResult.plan)
+  const handleHomeTranslate = useCallback((text: string) => {
+    if (!text.trim()) return
+    setPendingInput(text.trim())
+    const nextPath = "/translate"
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState(null, "", nextPath)
     }
-  }, [translate, playSequence, stopPlayback])
+    setModeState("translate")
+  }, [])
 
   const handleVoiceResult = useCallback((voiceResult: TranslationResult) => {
     stopPlayback()
@@ -82,20 +117,54 @@ function App() {
     }
   }, [setResult, playSequence, stopPlayback])
 
+  const handleHomeVoiceResult = useCallback((voiceResult: TranslationResult) => {
+    stopPlayback()
+    setResult(voiceResult)
+    if (voiceResult.plan.length > 0) {
+      playSequence(voiceResult.plan)
+    }
+    if (voiceResult.transcription) {
+      setPendingInput(voiceResult.transcription)
+    }
+    const nextPath = "/translate"
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState(null, "", nextPath)
+    }
+    setModeState("translate")
+  }, [stopPlayback, setResult, playSequence])
+
   const handleReplay = useCallback(() => {
     if (result && result.plan.length > 0) playSequence(result.plan)
   }, [result, playSequence])
 
   const setMode = (nextMode: AppMode) => {
+    // Redirect unauthenticated users to login for protected pages
+    if ((nextMode === "translate" || nextMode === "admin") && !user) {
+      const nextPath = "/login"
+      console.debug("[App][setMode] unauthenticated redirect to login", { fromMode: mode, toMode: nextMode })
+      if (window.location.pathname !== nextPath) {
+        window.history.pushState(null, "", nextPath)
+      }
+      setModeState("login")
+      return
+    }
     const nextPath = pathForMode(nextMode)
+    console.debug("[App][setMode]", {
+      fromMode: mode,
+      toMode: nextMode,
+      fromPath: window.location.pathname,
+      toPath: nextPath,
+      isLoggedIn: !!user,
+    })
     if (window.location.pathname !== nextPath) {
       window.history.pushState(null, "", nextPath)
     }
-    if (nextMode !== "translate") {
-      setHasAttemptedTranslation(false)
-    }
     setModeState(nextMode)
   }
+
+  const handleLogout = useCallback(async () => {
+    await logout()
+  }, [logout])
 
   if (loading) {
     return (
@@ -108,6 +177,49 @@ function App() {
     )
   }
 
+  // Dictionary and Learn are public — render before any auth checks
+  const authAction = user ? handleLogout : () => setMode("login")
+
+  if (effectiveMode === "dictionary") {
+    return (
+      <DictionaryPage
+        onNavigate={(dest) => setMode(dest === "home" ? "home" : dest)}
+        onSignOut={authAction}
+        isAdmin={isAdmin}
+        isLoggedIn={!!user}
+      />
+    )
+  }
+
+  if (effectiveMode === "learn") {
+    return (
+      <LearningPage
+        onNavigate={(dest) => setMode(dest === "home" ? "home" : dest)}
+        onSignOut={authAction}
+        isAdmin={isAdmin}
+        isLoggedIn={!!user}
+      />
+    )
+  }
+
+  if (effectiveMode === "home") {
+    return (
+      <HomePage
+        onNavigate={(dest) => setMode(dest)}
+        onTranslate={handleHomeTranslate}
+        onVoiceResult={user ? handleHomeVoiceResult : undefined}
+        onLogout={authAction}
+        isAdmin={isAdmin}
+        isLoggedIn={!!user}
+      />
+    )
+  }
+
+  if (effectiveMode === "login") {
+    return <LoginPage />
+  }
+
+  // Translate and Admin require login
   if (!user) {
     return <LoginPage />
   }
@@ -126,7 +238,7 @@ function App() {
             Your account is awaiting admin approval. You'll receive access once an admin reviews your request.
           </p>
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="text-sm text-[#6a7282] hover:text-[#4a5565] transition-colors"
           >
             Sign out
@@ -150,7 +262,7 @@ function App() {
             Your access to this application has been revoked. Please contact an admin if you believe this is a mistake.
           </p>
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="text-sm text-[#6a7282] hover:text-[#4a5565] transition-colors"
           >
             Sign out
@@ -160,48 +272,14 @@ function App() {
     )
   }
 
-  if (effectiveMode === "dictionary") {
-    return (
-      <DictionaryPage
-        onNavigate={(dest) => setMode(dest === "home" ? "translate" : dest)}
-        onSignOut={logout}
-        isAdmin={isAdmin}
-      />
-    )
-  }
-
-  if (effectiveMode === "learn") {
-    return (
-      <LearningPage
-        onNavigate={(dest) => setMode(dest === "home" ? "translate" : dest)}
-        onSignOut={logout}
-        isAdmin={isAdmin}
-      />
-    )
-  }
-
-  if (effectiveMode === "translate" && !hasAttemptedTranslation) {
-    return (
-      <HomePage
-        onNavigate={(dest) => setMode(dest)}
-        onTranslate={handleLandingTranslate}
-        onVoiceResult={(voiceResult) => {
-          setHasAttemptedTranslation(true)
-          handleVoiceResult(voiceResult)
-        }}
-        onLogout={logout}
-        isAdmin={isAdmin}
-      />
-    )
-  }
-
   return (
     <div className="min-h-screen flex flex-col bg-[#f9fafb]">
       <AppNavbar
         activeMode={effectiveMode}
         onNavigate={setMode}
-        onLogout={logout}
+        onLogout={handleLogout}
         isAdmin={isAdmin}
+        isLoggedIn={!!user}
       />
 
       <main className="flex-1 max-w-[1440px] mx-auto w-full px-4 sm:px-6 pt-5 pb-24 sm:pb-8">
@@ -213,7 +291,10 @@ function App() {
                 onVoiceResult={handleVoiceResult}
                 isLoading={isLoading}
                 error={error}
+                retryAfter={retryAfter}
                 result={result}
+                initialText={pendingInput}
+                onInitialTextConsumed={() => setPendingInput(undefined)}
               />
               <OutputPanel
                 plan={result?.plan || []}

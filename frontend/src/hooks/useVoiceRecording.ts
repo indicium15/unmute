@@ -23,6 +23,7 @@ export function useVoiceRecording(options: UseVoiceRecordingOptions = {}) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [transcription, setTranscription] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [retryAfter, setRetryAfter] = useState<number | null>(null)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -59,10 +60,19 @@ export function useVoiceRecording(options: UseVoiceRecordingOptions = {}) {
         }),
       })
 
+      if (res.status === 429) {
+        const retryAfterSecs = parseInt(res.headers.get("Retry-After") || "60", 10)
+        setRetryAfter(Date.now() + retryAfterSecs * 1000)
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || "Rate limit exceeded. Please wait before recording again.")
+      }
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.detail || "Transcription failed")
       }
+
+      setRetryAfter(null)
 
       const data = await res.json()
 
@@ -154,6 +164,7 @@ export function useVoiceRecording(options: UseVoiceRecordingOptions = {}) {
     isProcessing,
     transcription,
     error,
+    retryAfter,
     startRecording,
     stopRecording,
     toggleRecording,

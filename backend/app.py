@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 import os
 import json
 import pathlib
@@ -15,10 +17,20 @@ from llm_client import LLMClient
 from planner import build_render_plan
 from sign_seq import SignSequenceManager
 from gcs_storage import USE_GCS, get_dataset_info, get_static_url, GCS_SGLS_DATASET_ROOT
-from auth import verify_token, verify_approved_token
+from auth import verify_token, verify_approved_token, optional_approved_token
 import database
 
+def _get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+limiter = Limiter(key_func=_get_client_ip)
+
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS
 app.add_middleware(
@@ -27,6 +39,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After"],
 )
 
 # Mount Static Directories for sign language assets only (when not using GCS)
@@ -86,16 +99,21 @@ class LessonSummary(BaseModel):
     description: str
     emoji: str
     sign_count: int
+    difficulty: Optional[str]
+    tags: List[str]
 
 class LessonDetail(BaseModel):
     lesson_id: str
     lesson_name: str
     description: str
     emoji: str
+    difficulty: Optional[str]
+    tags: List[str]
     signs: List[LessonSign]
 
-# ── Lesson loader ─────────────────────────────────────────────────────────────
+# ── Lesson + tag-config loader ────────────────────────────────────────────────
 _LESSONS_DIR = pathlib.Path(__file__).parent / "lessons"
+_TAG_CONFIG_PATH = pathlib.Path(__file__).parent / "tag_config.json"
 
 def _load_lessons() -> list:
     lessons = []
@@ -109,7 +127,14 @@ def _load_lessons() -> list:
     lessons.sort(key=lambda l: (l.get("order", 999), l.get("lesson_id", "")))
     return lessons
 
+def _load_tag_config() -> dict:
+    if _TAG_CONFIG_PATH.exists():
+        with open(_TAG_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
 _lessons: list = _load_lessons()
+_tag_config: dict = _load_tag_config()
 
 @app.get("/health")
 def health():
@@ -121,7 +146,8 @@ def health():
     }
 
 @app.post("/api/translate", response_model=TranslateResponse)
-def translate(req: GlossRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_approved_token)):
+@limiter.limit("5/minute;30/hour")
+def translate(request: Request, req: GlossRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_approved_token)):
     # 1. Text to Gloss (Gemini) with language support
     print(f"Translating: {req.text} (language: {req.language or 'auto-detect'})")
     gloss_result = gemini.text_to_gloss(req.text, language=req.language)
@@ -199,7 +225,8 @@ class TranscribeResponse(BaseModel):
 
 
 @app.post("/api/transcribe")
-async def transcribe_audio(req: TranscribeRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_approved_token)):
+@limiter.limit("3/minute;20/hour")
+async def transcribe_audio(request: Request, req: TranscribeRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_approved_token)):
     """
     Transcribe audio to text using Gemini Live API with automatic VAD.
     Supports multiple languages: English, Chinese, Malay, Tamil, and others.
@@ -308,7 +335,7 @@ def get_learning_signs(
     q: str = "",
     limit: int = 48,
     offset: int = 0,
-    _user: dict = Depends(verify_approved_token),
+    _user=Depends(optional_approved_token),
 ):
     """Return searchable sign vocabulary items for the learning experience."""
     if not (1 <= limit <= 100):
@@ -335,7 +362,7 @@ def get_learning_signs(
 
 
 @app.get("/api/learning/quiz")
-def get_quiz(_user: dict = Depends(verify_approved_token)):
+def get_quiz(_user=Depends(optional_approved_token)):
     """Return a random sign GIF and 4 multiple-choice token options (1 correct, 3 wrong)."""
     tokens = vocab.get_allowed_tokens()
     if len(tokens) < 4:
@@ -360,8 +387,14 @@ def get_quiz(_user: dict = Depends(verify_approved_token)):
 
 # ── Lessons endpoints ─────────────────────────────────────────────────────────
 
+@app.get("/api/learning/tag-config")
+def get_tag_config(_user=Depends(optional_approved_token)):
+    """Return display metadata (color, bg, border) for all known tags."""
+    return _tag_config
+
+
 @app.get("/api/learning/lessons", response_model=List[LessonSummary])
-def get_lessons(_user: dict = Depends(verify_approved_token)):
+def get_lessons(_user=Depends(optional_approved_token)):
     """Return all lesson summaries (metadata + sign count, no GIF data)."""
     return [
         {
@@ -370,13 +403,15 @@ def get_lessons(_user: dict = Depends(verify_approved_token)):
             "description": lesson["description"],
             "emoji": lesson.get("emoji", "📖"),
             "sign_count": len(lesson.get("tokens", [])),
+            "difficulty": lesson.get("difficulty"),
+            "tags": lesson.get("tags", []),
         }
         for lesson in _lessons
     ]
 
 
 @app.get("/api/learning/lessons/{lesson_id}", response_model=LessonDetail)
-def get_lesson(lesson_id: str, _user: dict = Depends(verify_approved_token)):
+def get_lesson(lesson_id: str, _user=Depends(optional_approved_token)):
     """Return full lesson detail with resolved GIF URLs for all signs."""
     lesson = next((l for l in _lessons if l["lesson_id"] == lesson_id), None)
     if not lesson:
@@ -395,6 +430,8 @@ def get_lesson(lesson_id: str, _user: dict = Depends(verify_approved_token)):
         "lesson_name": lesson["lesson_name"],
         "description": lesson["description"],
         "emoji": lesson.get("emoji", "📖"),
+        "difficulty": lesson.get("difficulty"),
+        "tags": lesson.get("tags", []),
         "signs": signs,
     }
 
@@ -540,6 +577,36 @@ def admin_revoke_user(target_uid: str, user: dict = Depends(verify_token)):
     ok = database.revoke_user(target_uid)
     if not ok:
         raise HTTPException(status_code=404, detail="User not found or update failed")
+    return {"success": True}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(user: dict = Depends(verify_token)):
+    """Return dashboard statistics. Admin only."""
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return database.get_dashboard_stats()
+
+
+@app.post("/api/admin/users/{target_uid}/grant-admin")
+def admin_grant_admin(target_uid: str, user: dict = Depends(verify_token)):
+    """Grant admin privileges (Firebase custom claim) to a user. Admin only."""
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    ok = database.set_user_admin(target_uid, True, set_by=user.get("uid"))
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to grant admin privileges")
+    return {"success": True}
+
+
+@app.post("/api/admin/users/{target_uid}/revoke-admin")
+def admin_revoke_admin_claim(target_uid: str, user: dict = Depends(verify_token)):
+    """Revoke admin privileges (Firebase custom claim) from a user. Admin only."""
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    ok = database.set_user_admin(target_uid, False, set_by=user.get("uid"))
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to revoke admin privileges")
     return {"success": True}
 
 

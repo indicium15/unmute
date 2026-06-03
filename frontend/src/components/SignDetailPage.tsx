@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
-import { ArrowLeft, BookOpen, ChevronRight, Tag } from "lucide-react"
+import { ArrowLeft, Tag } from "lucide-react"
 import { AppNavbar, type NavMode } from "@/components/AppNavbar"
-import { getCategoryMeta } from "@/lib/categories"
+import { getTagStyle } from "@/lib/categories"
 
 function formatSignLabel(token: string): string {
   return token
@@ -20,7 +20,7 @@ export interface SignDetail {
   token: string
   sign_name: string
   gif_url: string
-  category?: string
+  tags: string[]
   variants?: SignVariant[]
 }
 
@@ -30,8 +30,9 @@ interface SignDetailPageProps {
   onBack: () => void
   onSelectSign: (sign: SignDetail) => void
   onNavigate: (dest: NavMode | "home") => void
-  onSignOut: () => void
+  onSignOut?: () => void
   isAdmin?: boolean
+  isLoggedIn?: boolean
 }
 
 export function SignDetailPage({
@@ -42,11 +43,10 @@ export function SignDetailPage({
   onNavigate,
   onSignOut,
   isAdmin,
+  isLoggedIn = true,
 }: SignDetailPageProps) {
   const label = formatSignLabel(sign.token)
-  const { color, difficulty, description, usage } = getCategoryMeta(sign.category)
 
-  // Always prepend the primary so the strip starts from it
   const variants: SignVariant[] = [
     { sign_name: sign.sign_name, variant_label: null, gif_url: sign.gif_url },
     ...(sign.variants ?? []),
@@ -57,8 +57,9 @@ export function SignDetailPage({
 
   const activeGif = variants[activeIdx]?.gif_url ?? sign.gif_url
 
+  // Related signs share at least one tag with this sign
   const related = relatedSigns
-    .filter((s) => s.token !== sign.token && s.category === sign.category)
+    .filter((s) => s.token !== sign.token && s.tags.some((t) => sign.tags.includes(t)))
     .slice(0, 4)
 
   return (
@@ -66,8 +67,9 @@ export function SignDetailPage({
       <AppNavbar
         activeMode="dictionary"
         onNavigate={(dest) => onNavigate(dest)}
-        onLogout={onSignOut}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
+        isLoggedIn={isLoggedIn}
       />
 
       {/* Hero */}
@@ -80,21 +82,16 @@ export function SignDetailPage({
             <ArrowLeft className="w-4 h-4" />
             Back
           </button>
-          <div className="flex items-center gap-2 mb-3">
-            {sign.category && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            {sign.tags.map((tag) => (
               <span
+                key={tag}
                 className="px-2.5 py-1 rounded-full text-[12px] font-medium text-white"
                 style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
               >
-                {sign.category}
+                {tag}
               </span>
-            )}
-            <span
-              className="px-2.5 py-1 rounded-full text-[12px] font-medium text-white"
-              style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
-            >
-              {difficulty}
-            </span>
+            ))}
           </div>
           <h1 className="text-[32px] font-bold text-white leading-tight mb-1">{label}</h1>
         </div>
@@ -118,7 +115,7 @@ export function SignDetailPage({
             )}
           </div>
 
-          {/* Variant strip — only shown when there are multiple */}
+          {/* Variant strip */}
           {variants.length > 1 && (
             <div className="border-t border-[#f3f4f6] bg-[#fafafa] px-4 py-3">
               <p className="text-[11px] font-semibold text-[#6a7282] uppercase tracking-wider mb-2">
@@ -150,52 +147,32 @@ export function SignDetailPage({
             </div>
           )}
 
-
           {/* Details */}
           <div className="p-6">
             <h2 className="text-[22px] font-bold text-[#101828] mb-3">{label}</h2>
 
-            <div className="flex items-center gap-2 flex-wrap mb-4">
-              {sign.category && (
-                <span
-                  className="px-2.5 py-1 rounded-full text-[12px] font-medium text-white"
-                  style={{ backgroundColor: color }}
-                >
-                  {sign.category}
-                </span>
-              )}
-              <span
-                className={`px-2.5 py-1 rounded-full text-[12px] font-medium border ${
-                  difficulty === "Beginner"
-                    ? "bg-[#f0fdf4] border-[#b9f8cf] text-[#008236]"
-                    : "bg-[#fefce8] border-[#fff085] text-[#a65f00]"
-                }`}
-              >
-                {difficulty}
-              </span>
-            </div>
-
-            <p className="text-[15px] text-[#4a5565] leading-relaxed mb-5">{description}</p>
-
-            {/* Common Usage */}
-            <div className="mb-5">
-              <div className="flex items-center gap-2 mb-3">
-                <BookOpen className="w-4 h-4 text-[#6a7282] flex-shrink-0" />
-                <span className="text-[11px] font-semibold text-[#6a7282] uppercase tracking-wider">
-                  Common Usage
-                </span>
+            {sign.tags.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap mb-4">
+                {sign.tags.map((tag) => {
+                  const style = getTagStyle(tag)
+                  return (
+                    <span
+                      key={tag}
+                      className="px-2.5 py-1 rounded-full text-[12px] font-medium border"
+                      style={{
+                        backgroundColor: style.bg,
+                        color: style.color,
+                        borderColor: style.border ?? style.bg,
+                      }}
+                    >
+                      {tag}
+                    </span>
+                  )
+                })}
               </div>
-              <ul className="flex flex-col gap-2">
-                {usage.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[14px] text-[#4a5565]">
-                    <ChevronRight className="w-4 h-4 text-[#6176f7] flex-shrink-0 mt-0.5" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            )}
 
-            {/* Related Signs */}
+            {/* Related Signs inline */}
             {related.length > 0 && (
               <div>
                 <div className="flex items-center gap-2 mb-3">
@@ -232,7 +209,7 @@ export function SignDetailPage({
           </div>
         </div>
 
-        {/* Explore Related Signs */}
+        {/* Related signs grid */}
         {related.length > 0 && (
           <div className="bg-white border border-[#e5e7eb] rounded-[20px] p-6 shadow-sm mb-8">
             <div className="flex items-center gap-2 mb-4">
@@ -240,7 +217,7 @@ export function SignDetailPage({
               <span className="text-[15px] font-semibold text-[#101828]">Explore Related Signs</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              {related.slice(0, 4).map((s) => (
+              {related.map((s) => (
                 <button
                   key={s.token}
                   onClick={() => onSelectSign(s)}
@@ -250,23 +227,22 @@ export function SignDetailPage({
                     {formatSignLabel(s.token)}
                   </p>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {s.category && (
-                      <span
-                        className="px-2 py-0.5 rounded-full text-[11px] font-medium text-white"
-                        style={{ backgroundColor: getCategoryMeta(s.category).color }}
-                      >
-                        {s.category}
-                      </span>
-                    )}
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${
-                        getCategoryMeta(s.category).difficulty === "Beginner"
-                          ? "bg-[#f0fdf4] border-[#b9f8cf] text-[#008236]"
-                          : "bg-[#fefce8] border-[#fff085] text-[#a65f00]"
-                      }`}
-                    >
-                      {getCategoryMeta(s.category).difficulty}
-                    </span>
+                    {s.tags.map((tag) => {
+                      const style = getTagStyle(tag)
+                      return (
+                        <span
+                          key={tag}
+                          className="px-2 py-0.5 rounded-full text-[11px] font-medium border"
+                          style={{
+                            backgroundColor: style.bg,
+                            color: style.color,
+                            borderColor: style.border ?? style.bg,
+                          }}
+                        >
+                          {tag}
+                        </span>
+                      )
+                    })}
                   </div>
                 </button>
               ))}

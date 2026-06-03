@@ -1,0 +1,15 @@
+{
+  "Beginner":    { "color": "#008236", "bg": "#f0fdf4", "border": "#b9f8cf" },
+  "Intermediate":{ "color": "#a65f00", "bg": "#fefce8", "border": "#fff085" },
+  "Advanced":    { "color": "#b91c1c", "bg": "#fef2f2", "border": "#fecaca" },
+
+  "Places":      { "color": "#ffffff", "bg": "#6176f7" },
+  "Singapore":   { "color": "#ffffff", "bg": "#3b82f6" },
+  "Food & Drink":{ "color": "#ffffff", "bg": "#f97316" },
+  "Everyday":    { "color": "#ffffff", "bg": "#14b8a6" },
+  "Feelings":    { "color": "#ffffff", "bg": "#f59e0b" },
+  "Family":      { "color": "#ffffff", "bg": "#14b8a6" },
+  "Numbers":     { "color": "#ffffff", "bg": "#3b82f6" },
+  "Colors":      { "color": "#ffffff", "bg": "#ec4899" },
+  "Questions":   { "color": "#ffffff", "bg": "#a855f7" }
+}

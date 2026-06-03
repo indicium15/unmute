@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { FirebaseError } from "firebase/app"
 import { useAuth } from "@/contexts/useAuth"
-import { KeyRound } from "lucide-react"
+import { KeyRound, Check, X } from "lucide-react"
 
 function firebaseErrorMessage(err: unknown): string {
   const code = err instanceof FirebaseError ? err.code : "unknown"
@@ -13,6 +13,23 @@ function firebaseErrorMessage(err: unknown): string {
   return "Invalid email or password."
 }
 
+interface PasswordRule {
+  label: string
+  test: (pw: string) => boolean
+}
+
+const PASSWORD_RULES: PasswordRule[] = [
+  { label: "At least 8 characters", test: (pw) => pw.length >= 8 },
+  { label: "One uppercase letter", test: (pw) => /[A-Z]/.test(pw) },
+  { label: "One lowercase letter", test: (pw) => /[a-z]/.test(pw) },
+  { label: "One number", test: (pw) => /[0-9]/.test(pw) },
+  { label: "One special character", test: (pw) => /[^A-Za-z0-9]/.test(pw) },
+]
+
+function passwordIsStrong(pw: string) {
+  return PASSWORD_RULES.every((r) => r.test(pw))
+}
+
 type Mode = "login" | "signup"
 
 export function LoginPage() {
@@ -20,11 +37,13 @@ export function LoginPage() {
   const [mode, setMode] = useState<Mode>("login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [passwordFocused, setPasswordFocused] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
 
-  const canSubmit = email.trim() !== "" && password !== ""
+  const isSignup = mode === "signup"
+  const canSubmit = email.trim() !== "" && password !== "" && (!isSignup || passwordIsStrong(password))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -164,11 +183,32 @@ export function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onFocus={() => setPasswordFocused(true)}
+                onBlur={() => setPasswordFocused(false)}
                 required
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
                 className="w-full px-4 py-3 rounded-[14px] bg-[#f9fafb] border border-[#e5e7eb] text-[#101828] text-[16px] outline-none focus:border-[#6176f7] focus:ring-2 focus:ring-[#6176f7]/15 transition-all placeholder:text-[#99a1af]"
                 placeholder="••••••••"
               />
+              {isSignup && (passwordFocused || password.length > 0) && (
+                <div className="mt-1 rounded-[12px] border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2.5 flex flex-col gap-1.5">
+                  {PASSWORD_RULES.map((rule) => {
+                    const passed = rule.test(password)
+                    return (
+                      <div key={rule.label} className="flex items-center gap-2">
+                        {passed ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                        ) : (
+                          <X className="w-3.5 h-3.5 text-[#d1d5db] flex-shrink-0" />
+                        )}
+                        <span className={`text-[12px] ${passed ? "text-emerald-600" : "text-[#6a7282]"}`}>
+                          {rule.label}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {error && (

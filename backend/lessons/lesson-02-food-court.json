@@ -4,5 +4,7 @@
   "description": "Signs for food, drinks, and common phrases you'll need when ordering at a hawker centre or food court.",
   "emoji": "🍜",
   "order": 2,
+  "difficulty": "Beginner",
+  "tags": ["Food & Drink"],
   "tokens": ["FOOD", "EATA", "RICE", "NOODLE", "CHICKEN", "FISH", "SOUP", "TEA", "COFFEE", "WATER", "DRINKA", "CHEAP", "EXPENSIVE", "PAY", "CASHIER"]
 }

@@ -69,11 +69,12 @@ function shuffle<T>(arr: T[]): T[] {
 
 export interface LearningPageProps {
   onNavigate: (dest: NavMode | "home") => void
-  onSignOut: () => void
+  onSignOut?: () => void
   isAdmin?: boolean
+  isLoggedIn?: boolean
 }
 
-export function LearningPage({ onNavigate, onSignOut, isAdmin }: LearningPageProps) {
+export function LearningPage({ onNavigate, onSignOut, isAdmin, isLoggedIn = true }: LearningPageProps) {
   const [lessons, setLessons] = useState<LessonSummary[]>([])
   const [loadingLessons, setLoadingLessons] = useState(false)
   const [lessonsError, setLessonsError] = useState("")
@@ -204,8 +205,9 @@ export function LearningPage({ onNavigate, onSignOut, isAdmin }: LearningPagePro
       <AppNavbar
         activeMode="learn"
         onNavigate={(dest) => onNavigate(dest)}
-        onLogout={onSignOut}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
+        isLoggedIn={isLoggedIn}
       />
 
       {/* Hero */}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, ThumbsUp, ThumbsDown, Users, FileText, ShieldCheck } from "lucide-react"
+import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, ThumbsUp, ThumbsDown, Users, FileText, ShieldCheck, BarChart2 } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
 }
 
-type AdminTab = "users" | "allowlist" | "logs"
+type AdminTab = "dashboard" | "users" | "admins" | "logs"
 type LogTab = "translation" | "transcription" | "feedback"
 
 interface TranslationLog {
@@ -287,6 +287,165 @@ function Field({
   )
 }
 
+// ── Dashboard panel ────────────────────────────────────────────────────────
+
+interface DashboardStats {
+  total_users: number
+  queries_last_30_days: number
+  active_users_30d: number
+  queries_by_day: { date: string; count: number }[]
+}
+
+function QueryBarChart({ data }: { data: { date: string; count: number }[] }) {
+  const maxCount = Math.max(...data.map((d) => d.count), 1)
+  const chartH = 120
+  const barW = 100 / data.length
+
+  // Week boundary labels at indices 0, 7, 14, 21, 29
+  const labelIndices = [0, 7, 14, 21, 29]
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 100 ${chartH}`}
+        preserveAspectRatio="none"
+        className="w-full"
+        style={{ height: chartH }}
+      >
+        {data.map((d, i) => {
+          const barH = (d.count / maxCount) * chartH * 0.88
+          const x = i * barW + barW * 0.12
+          const w = barW * 0.76
+          return (
+            <rect
+              key={d.date}
+              x={x}
+              y={chartH - barH}
+              width={w}
+              height={Math.max(barH, 0)}
+              rx="0.8"
+              fill="var(--color-accent-terracotta)"
+              opacity={0.72}
+            />
+          )
+        })}
+      </svg>
+      {/* X-axis labels */}
+      <div className="relative w-full mt-2" style={{ height: 18 }}>
+        {labelIndices.map((i) => {
+          if (!data[i]) return null
+          const label = new Date(data[i].date + "T00:00:00").toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          })
+          return (
+            <span
+              key={i}
+              className="absolute text-[10px] text-text-muted -translate-x-1/2"
+              style={{ left: `${((i + 0.5) / data.length) * 100}%` }}
+            >
+              {label}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function DashboardPanel() {
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchStats = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API_BASE_URL}/api/admin/stats`, { headers })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
+      }
+      setStats(await res.json())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to fetch stats")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchStats()
+  }, [fetchStats])
+
+  return (
+    <div>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h2 className="font-serif text-3xl font-semibold text-text-primary">Dashboard</h2>
+          <p className="text-sm text-text-muted mt-1">Overview of users and query activity</p>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={fetchStats}
+          disabled={isLoading}
+          className="text-text-muted hover:text-text-secondary px-3 py-2 rounded-[14px] mt-1"
+          title="Refresh"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="p-16 text-center">
+          <p className="text-text-muted text-sm">Loading…</p>
+        </div>
+      ) : error ? (
+        <div className="p-16 text-center">
+          <p className="text-red-500 text-sm">{error}</p>
+        </div>
+      ) : stats ? (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            {[
+              { label: "Total Users", value: stats.total_users },
+              { label: "Queries (last 30 days)", value: stats.queries_last_30_days },
+              { label: "Active Users (30d)", value: stats.active_users_30d },
+            ].map(({ label, value }) => (
+              <Card
+                key={label}
+                className="border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-5"
+                style={{ boxShadow: "var(--shadow-soft)" }}
+              >
+                <p className="text-xs uppercase tracking-widest text-text-muted mb-2">{label}</p>
+                <p className="font-serif text-4xl font-semibold text-text-primary">
+                  {value.toLocaleString()}
+                </p>
+              </Card>
+            ))}
+          </div>
+
+          <Card
+            className="border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-6"
+            style={{ boxShadow: "var(--shadow-soft)" }}
+          >
+            <p className="text-sm font-medium text-text-secondary mb-5">
+              Queries per day — last 30 days
+            </p>
+            {stats.queries_by_day.some((d) => d.count > 0) ? (
+              <QueryBarChart data={stats.queries_by_day} />
+            ) : (
+              <p className="text-text-muted text-sm text-center py-8">No query data yet</p>
+            )}
+          </Card>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 // ── User management panel ──────────────────────────────────────────────────
 
 interface UserRecord {
@@ -297,6 +456,7 @@ interface UserRecord {
   registered_at: string
   approved_at?: string
   approved_by?: string
+  is_admin?: boolean
 }
 
 const STATUS_STYLES: Record<UserRecord["status"], string> = {
@@ -337,7 +497,9 @@ function UsersPanel() {
     }
   }, [])
 
-  useEffect(() => { fetchUsers(0) }, [fetchUsers])
+  useEffect(() => {
+    fetchUsers(0)
+  }, [fetchUsers])
 
   const handleAction = async (uid: string, action: "revoke") => {
     setActionLoading(uid)
@@ -486,101 +648,92 @@ function UsersPanel() {
   )
 }
 
-// ── Email allowlist panel ─────────────────────────────────────────────────────
+// ── Admin access management panel ─────────────────────────────────────────
 
-interface AllowlistEntry {
-  id: string
-  email: string
-  added_at: string
-  added_by: string | null
-}
-
-function AllowlistPanel() {
-  const [entries, setEntries] = useState<AllowlistEntry[]>([])
+function AdminsPanel() {
+  const [users, setUsers] = useState<UserRecord[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [newEmail, setNewEmail] = useState("")
-  const [addLoading, setAddLoading] = useState(false)
-  const [removeLoading, setRemoveLoading] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [currentUid, setCurrentUid] = useState<string | null>(null)
 
-  const fetchAllowlist = useCallback(async () => {
+  useEffect(() => {
+    const user = auth.currentUser
+    if (user) setCurrentUid(user.uid)
+  }, [])
+
+  const fetchUsers = useCallback(async (pageNum: number) => {
     setIsLoading(true)
     setError(null)
     try {
       const headers = await authHeaders()
-      const res = await fetch(`${API_BASE_URL}/api/admin/allowlist`, { headers })
+      const res = await fetch(
+        `${API_BASE_URL}/api/admin/users?limit=${PAGE_SIZE}&offset=${pageNum * PAGE_SIZE}`,
+        { headers }
+      )
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
       }
-      const data = await res.json() as { emails: AllowlistEntry[]; has_more: boolean }
-      setEntries(data.emails)
+      const data = await res.json() as { users: UserRecord[]; has_more: boolean }
+      setUsers(data.users)
+      setHasMore(data.has_more)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch allowlist")
+      setError(e instanceof Error ? e.message : "Failed to fetch users")
+      setUsers([])
     } finally {
       setIsLoading(false)
     }
   }, [])
 
-  useEffect(() => { fetchAllowlist() }, [fetchAllowlist])
+  useEffect(() => {
+    fetchUsers(0)
+  }, [fetchUsers])
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newEmail.trim()) return
-    setAddLoading(true)
+  const handleAdminToggle = async (uid: string, grantAdmin: boolean) => {
+    setActionLoading(uid)
     setError(null)
     try {
       const headers = await authHeaders()
-      const res = await fetch(`${API_BASE_URL}/api/admin/allowlist`, {
+      const action = grantAdmin ? "grant-admin" : "revoke-admin"
+      const res = await fetch(`${API_BASE_URL}/api/admin/users/${uid}/${action}`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ email: newEmail.trim() }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
       }
-      setNewEmail("")
-      await fetchAllowlist()
+      setUsers((prev) =>
+        prev.map((u) => (u.id === uid ? { ...u, is_admin: grantAdmin } : u))
+      )
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to add email")
+      setError(e instanceof Error ? e.message : `Failed to ${grantAdmin ? "grant" : "revoke"} admin`)
     } finally {
-      setAddLoading(false)
+      setActionLoading(null)
     }
   }
 
-  const handleRemove = async (email: string) => {
-    setRemoveLoading(email)
-    try {
-      const headers = await authHeaders()
-      const res = await fetch(`${API_BASE_URL}/api/admin/allowlist/${encodeURIComponent(email)}`, {
-        method: "DELETE",
-        headers,
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
-      }
-      setEntries((prev) => prev.filter((e) => e.email !== email))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to remove email")
-    } finally {
-      setRemoveLoading(null)
-    }
+  const handlePage = (delta: number) => {
+    const next = page + delta
+    setPage(next)
+    fetchUsers(next)
   }
 
   return (
     <div>
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h2 className="font-serif text-3xl font-semibold text-text-primary">Email Allowlist</h2>
+          <h2 className="font-serif text-3xl font-semibold text-text-primary">Admin Access</h2>
           <p className="text-sm text-text-muted mt-1">
-            Only emails on this list can create accounts. Existing approved users are unaffected.
+            Control which users have admin privileges
           </p>
         </div>
         <Button
           variant="ghost"
-          onClick={fetchAllowlist}
+          onClick={() => fetchUsers(page)}
           disabled={isLoading}
           className="text-text-muted hover:text-text-secondary px-3 py-2 rounded-[14px] mt-1"
           title="Refresh"
@@ -588,23 +741,6 @@ function AllowlistPanel() {
           <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
         </Button>
       </div>
-
-      <form onSubmit={handleAdd} className="flex gap-2 mb-6">
-        <input
-          type="email"
-          value={newEmail}
-          onChange={(e) => setNewEmail(e.target.value)}
-          placeholder="new@example.com"
-          className="flex-1 px-4 py-2.5 rounded-[12px] bg-white border border-[var(--color-border-soft)] text-sm text-text-primary outline-none focus:border-[var(--color-accent-terracotta)] transition-all"
-        />
-        <Button
-          type="submit"
-          disabled={addLoading || !newEmail.trim()}
-          className="px-4 py-2.5 rounded-[12px] text-sm font-medium"
-        >
-          {addLoading ? "Adding…" : "Add Email"}
-        </Button>
-      </form>
 
       {error && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-[10px] px-3 py-2.5 mb-4">
@@ -620,47 +756,105 @@ function AllowlistPanel() {
           <div className="p-16 text-center">
             <p className="text-text-muted text-sm">Loading…</p>
           </div>
-        ) : entries.length === 0 ? (
+        ) : users.length === 0 ? (
           <div className="p-16 text-center">
-            <p className="text-text-muted text-sm">No emails on the allowlist yet.</p>
+            <p className="text-text-muted text-sm">No users found.</p>
           </div>
         ) : (
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-[var(--color-border-soft)]">
-                {["Email", "Added", ""].map((h) => (
-                  <th
-                    key={h}
-                    className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => (
-                <tr
-                  key={entry.id}
-                  className="border-b border-[var(--color-border-soft)] hover:bg-[var(--color-bg-cream)] transition-colors"
-                >
-                  <td className="py-3 px-4 text-sm text-text-primary">{entry.email}</td>
-                  <td className="py-3 px-4 text-xs text-text-muted whitespace-nowrap">
-                    {formatTimestamp(entry.added_at)}
-                  </td>
-                  <td className="py-3 px-4">
-                    <button
-                      onClick={() => handleRemove(entry.email)}
-                      disabled={removeLoading === entry.email}
-                      className="text-xs font-medium px-3 py-1.5 rounded-[8px] bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors disabled:opacity-50"
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-[var(--color-border-soft)]">
+                  {["Email", "Role", "Actions"].map((h) => (
+                    <th
+                      key={h}
+                      className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
                     >
-                      {removeLoading === entry.email ? "Removing…" : "Remove"}
-                    </button>
-                  </td>
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {users.map((u) => {
+                  const isSelf = u.id === currentUid
+                  const isAdmin = u.is_admin === true
+                  return (
+                    <tr
+                      key={u.id}
+                      className="border-b border-[var(--color-border-soft)] hover:bg-[var(--color-bg-cream)] transition-colors"
+                    >
+                      <td className="py-3 px-4 text-sm text-text-primary max-w-[280px] truncate">
+                        {u.email ?? <span className="text-text-muted italic">no email</span>}
+                        {isSelf && (
+                          <span className="ml-2 text-xs text-text-muted italic">(you)</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {isAdmin ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--color-accent-soft)] text-[var(--color-accent-terracotta)] border border-[var(--color-accent-soft)]">
+                            <ShieldCheck className="w-3 h-3" /> Admin
+                          </span>
+                        ) : (
+                          <span className="text-xs text-text-muted">User</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {!isSelf && (
+                          isAdmin ? (
+                            <button
+                              onClick={() => handleAdminToggle(u.id, false)}
+                              disabled={actionLoading === u.id}
+                              className="text-xs font-medium px-3 py-1.5 rounded-[8px] bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors disabled:opacity-50"
+                            >
+                              {actionLoading === u.id ? "Revoking…" : "Revoke Admin"}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleAdminToggle(u.id, true)}
+                              disabled={actionLoading === u.id}
+                              className="text-xs font-medium px-3 py-1.5 rounded-[8px] bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                            >
+                              {actionLoading === u.id ? "Granting…" : "Grant Admin"}
+                            </button>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!isLoading && users.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--color-border-soft)]">
+            <span className="text-xs text-text-muted">
+              Showing {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + users.length}
+            </span>
+            <div className="flex gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={page === 0}
+                onClick={() => handlePage(-1)}
+                className="px-2.5 py-1.5 rounded-[10px] text-text-muted hover:text-text-secondary disabled:opacity-40"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <span className="flex items-center px-2 text-xs text-text-muted">Page {page + 1}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!hasMore}
+                onClick={() => handlePage(1)}
+                className="px-2.5 py-1.5 rounded-[10px] text-text-muted hover:text-text-secondary disabled:opacity-40"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
         )}
       </Card>
     </div>
@@ -670,7 +864,7 @@ function AllowlistPanel() {
 // ── Main admin page ────────────────────────────────────────────────────────
 
 export function AdminPage() {
-  const [adminTab, setAdminTab] = useState<AdminTab>("users")
+  const [adminTab, setAdminTab] = useState<AdminTab>("dashboard")
   const [tab, setTab] = useState<LogTab>("translation")
   const [logs, setLogs] = useState<(TranslationLog | TranscriptionLog | FeedbackLog)[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -728,205 +922,195 @@ export function AdminPage() {
     feedback: "Feedback",
   }
 
+  const TOP_TABS: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
+    { id: "dashboard", label: "Dashboard", icon: <BarChart2 className="w-4 h-4" /> },
+    { id: "users", label: "Users", icon: <Users className="w-4 h-4" /> },
+    { id: "admins", label: "Admin Access", icon: <ShieldCheck className="w-4 h-4" /> },
+    { id: "logs", label: "Activity Logs", icon: <FileText className="w-4 h-4" /> },
+  ]
+
   return (
     <div className="w-full animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
       {/* Top-level admin tab switcher */}
       <div className="inline-flex gap-1.5 p-1.5 bg-[var(--color-bg-cream)] rounded-[20px] border border-[var(--color-border-soft)] mb-8">
-        <button
-          onClick={() => setAdminTab("users")}
-          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
-            adminTab === "users"
-              ? "bg-[var(--color-bg-card)] text-[var(--color-accent-terracotta)] shadow-[var(--shadow-soft)]"
-              : "text-text-secondary hover:text-text-primary hover:bg-white/50"
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          Users
-        </button>
-        <button
-          onClick={() => setAdminTab("allowlist")}
-          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
-            adminTab === "allowlist"
-              ? "bg-[var(--color-bg-card)] text-[var(--color-accent-terracotta)] shadow-[var(--shadow-soft)]"
-              : "text-text-secondary hover:text-text-primary hover:bg-white/50"
-          }`}
-        >
-          <ShieldCheck className="w-4 h-4" />
-          Allowlist
-        </button>
-        <button
-          onClick={() => setAdminTab("logs")}
-          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
-            adminTab === "logs"
-              ? "bg-[var(--color-bg-card)] text-[var(--color-accent-terracotta)] shadow-[var(--shadow-soft)]"
-              : "text-text-secondary hover:text-text-primary hover:bg-white/50"
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          Activity Logs
-        </button>
-      </div>
-
-      {adminTab === "users" && <UsersPanel />}
-      {adminTab === "allowlist" && <AllowlistPanel />}
-
-      {adminTab === "logs" && <>
-      {/* Log tab switcher */}
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h2 className="font-serif text-3xl font-semibold text-text-primary">
-            Activity Logs
-          </h2>
-          <p className="text-sm text-text-muted mt-1">
-            User queries, intermediate Gemini responses, and sign token output
-          </p>
-        </div>
-        <Button
-          variant="ghost"
-          onClick={() => fetchLogs(tab, page)}
-          disabled={isLoading}
-          className="text-text-muted hover:text-text-secondary px-3 py-2 rounded-[14px] mt-1"
-          title="Refresh"
-        >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
-        </Button>
-      </div>
-
-      {/* Log type tab switcher */}
-      <div className="inline-flex gap-1.5 p-1.5 bg-[var(--color-bg-cream)] rounded-[20px] border border-[var(--color-border-soft)] mb-6">
-        {(Object.keys(TAB_LABELS) as LogTab[]).map((t) => (
+        {TOP_TABS.map(({ id, label, icon }) => (
           <button
-            key={t}
-            onClick={() => handleTabChange(t)}
-            className={`px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
-              tab === t
+            key={id}
+            onClick={() => setAdminTab(id)}
+            className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
+              adminTab === id
                 ? "bg-[var(--color-bg-card)] text-[var(--color-accent-terracotta)] shadow-[var(--shadow-soft)]"
                 : "text-text-secondary hover:text-text-primary hover:bg-white/50"
             }`}
           >
-            {TAB_LABELS[t]}
+            {icon}
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Table card */}
-      <Card
-        className="overflow-hidden border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-0"
-        style={{ boxShadow: "var(--shadow-soft)" }}
-      >
-        {isLoading ? (
-          <div className="p-16 text-center">
-            <p className="text-text-muted text-sm">Loading…</p>
-          </div>
-        ) : error ? (
-          <div className="p-16 text-center">
-            <p className="text-text-muted text-sm">{error}</p>
-          </div>
-        ) : logs.length === 0 ? (
-          <div className="p-16 text-center">
-            <p className="text-text-muted text-sm">No logs found.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            {tab === "translation" ? (
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-[var(--color-border-soft)]">
-                    {["Timestamp", "User", "Type", "Input", "Lang", "Gloss", "Output", ""].map(
-                      (h) => (
-                        <th
-                          key={h}
-                          className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
-                        >
-                          {h}
-                        </th>
-                      )
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(logs as TranslationLog[]).map((log) => (
-                    <TranslationRow key={log.id} log={log} />
-                  ))}
-                </tbody>
-              </table>
-            ) : tab === "transcription" ? (
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-[var(--color-border-soft)]">
-                    {["Timestamp", "User", "Transcription", "Lang", ""].map((h) => (
-                      <th
-                        key={h}
-                        className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(logs as TranscriptionLog[]).map((log) => (
-                    <TranscriptionRow key={log.id} log={log} />
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-[var(--color-border-soft)]">
-                    {["Timestamp", "User", "Rating", "Comment", "Log Ref", ""].map((h) => (
-                      <th
-                        key={h}
-                        className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(logs as FeedbackLog[]).map((log) => (
-                    <FeedbackRow key={log.id} log={log} />
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
+      {adminTab === "dashboard" && <DashboardPanel />}
+      {adminTab === "users" && <UsersPanel />}
+      {adminTab === "admins" && <AdminsPanel />}
 
-        {/* Pagination footer */}
-        {!isLoading && !error && logs.length > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--color-border-soft)]">
-            <span className="text-xs text-text-muted">
-              Showing {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + logs.length}
-            </span>
-            <div className="flex gap-1.5">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={page === 0}
-                onClick={() => handlePage(-1)}
-                className="px-2.5 py-1.5 rounded-[10px] text-text-muted hover:text-text-secondary disabled:opacity-40"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <span className="flex items-center px-2 text-xs text-text-muted">
-                Page {page + 1}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!hasMore}
-                onClick={() => handlePage(1)}
-                className="px-2.5 py-1.5 rounded-[10px] text-text-muted hover:text-text-secondary disabled:opacity-40"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </Button>
+      {adminTab === "logs" && (
+        <>
+          <div className="mb-6 flex items-start justify-between">
+            <div>
+              <h2 className="font-serif text-3xl font-semibold text-text-primary">
+                Activity Logs
+              </h2>
+              <p className="text-sm text-text-muted mt-1">
+                User queries, intermediate Gemini responses, and sign token output
+              </p>
             </div>
+            <Button
+              variant="ghost"
+              onClick={() => fetchLogs(tab, page)}
+              disabled={isLoading}
+              className="text-text-muted hover:text-text-secondary px-3 py-2 rounded-[14px] mt-1"
+              title="Refresh"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            </Button>
           </div>
-        )}
-      </Card>
-      </>}
+
+          {/* Log type tab switcher */}
+          <div className="inline-flex gap-1.5 p-1.5 bg-[var(--color-bg-cream)] rounded-[20px] border border-[var(--color-border-soft)] mb-6">
+            {(Object.keys(TAB_LABELS) as LogTab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => handleTabChange(t)}
+                className={`px-5 py-2.5 rounded-[14px] text-sm font-medium transition-all ${
+                  tab === t
+                    ? "bg-[var(--color-bg-card)] text-[var(--color-accent-terracotta)] shadow-[var(--shadow-soft)]"
+                    : "text-text-secondary hover:text-text-primary hover:bg-white/50"
+                }`}
+              >
+                {TAB_LABELS[t]}
+              </button>
+            ))}
+          </div>
+
+          {/* Table card */}
+          <Card
+            className="overflow-hidden border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-0"
+            style={{ boxShadow: "var(--shadow-soft)" }}
+          >
+            {isLoading ? (
+              <div className="p-16 text-center">
+                <p className="text-text-muted text-sm">Loading…</p>
+              </div>
+            ) : error ? (
+              <div className="p-16 text-center">
+                <p className="text-text-muted text-sm">{error}</p>
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="p-16 text-center">
+                <p className="text-text-muted text-sm">No logs found.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                {tab === "translation" ? (
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-[var(--color-border-soft)]">
+                        {["Timestamp", "User", "Type", "Input", "Lang", "Gloss", "Output", ""].map(
+                          (h) => (
+                            <th
+                              key={h}
+                              className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
+                            >
+                              {h}
+                            </th>
+                          )
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(logs as TranslationLog[]).map((log) => (
+                        <TranslationRow key={log.id} log={log} />
+                      ))}
+                    </tbody>
+                  </table>
+                ) : tab === "transcription" ? (
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-[var(--color-border-soft)]">
+                        {["Timestamp", "User", "Transcription", "Lang", ""].map((h) => (
+                          <th
+                            key={h}
+                            className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(logs as TranscriptionLog[]).map((log) => (
+                        <TranscriptionRow key={log.id} log={log} />
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-[var(--color-border-soft)]">
+                        {["Timestamp", "User", "Rating", "Comment", "Log Ref", ""].map((h) => (
+                          <th
+                            key={h}
+                            className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(logs as FeedbackLog[]).map((log) => (
+                        <FeedbackRow key={log.id} log={log} />
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+            {/* Pagination footer */}
+            {!isLoading && !error && logs.length > 0 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--color-border-soft)]">
+                <span className="text-xs text-text-muted">
+                  Showing {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + logs.length}
+                </span>
+                <div className="flex gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={page === 0}
+                    onClick={() => handlePage(-1)}
+                    className="px-2.5 py-1.5 rounded-[10px] text-text-muted hover:text-text-secondary disabled:opacity-40"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="flex items-center px-2 text-xs text-text-muted">
+                    Page {page + 1}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!hasMore}
+                    onClick={() => handlePage(1)}
+                    className="px-2.5 py-1.5 rounded-[10px] text-text-muted hover:text-text-secondary disabled:opacity-40"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   )
 }

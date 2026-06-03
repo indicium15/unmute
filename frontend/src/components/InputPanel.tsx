@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { AlertCircle, ArrowUp, Clock, Loader2, Mic, Square } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { AlertCircle, ArrowUp, Clock, Loader2, Mic, Square, Timer } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { GlossDisplay } from "@/components/GlossDisplay"
@@ -12,7 +12,19 @@ interface InputPanelProps {
   onVoiceResult: (result: TranslationResult) => void
   isLoading: boolean
   error?: string | null
+  retryAfter?: number | null
   result: TranslationResult | null
+  initialText?: string
+  onInitialTextConsumed?: () => void
+}
+
+function formatCountdown(seconds: number): string {
+  if (seconds >= 60) {
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    return `${m}:${String(s).padStart(2, "0")}`
+  }
+  return `${seconds}s`
 }
 
 interface RecentTranslation {
@@ -21,9 +33,28 @@ interface RecentTranslation {
   result: TranslationResult
 }
 
-export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, result }: InputPanelProps) {
-  const [inputText, setInputText] = useState("")
+export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, retryAfter, result, initialText, onInitialTextConsumed }: InputPanelProps) {
+  const [inputText, setInputText] = useState(initialText ?? "")
   const [recentTranslations, setRecentTranslations] = useState<RecentTranslation[]>([])
+  const hasAutoTranslated = useRef(false)
+  const [countdown, setCountdown] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (initialText && !hasAutoTranslated.current) {
+      hasAutoTranslated.current = true
+      setInputText(initialText)
+      onInitialTextConsumed?.()
+      if (result) {
+        // Result already available (e.g. voice from home page); just show it
+        addRecentTranslation(initialText, result)
+      } else {
+        onTranslate(initialText).then((translationResult) => {
+          if (translationResult) addRecentTranslation(initialText, translationResult)
+        })
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const addRecentTranslation = (label: string, translationResult: TranslationResult) => {
     const trimmedLabel = label.trim() || "Voice translation"
@@ -47,10 +78,29 @@ export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, resul
     isRecording,
     isProcessing,
     error: voiceError,
+    retryAfter: voiceRetryAfter,
     toggleRecording,
   } = useVoiceRecording({
     onResult: handleVoiceResult,
   })
+
+  const activeRetryAfter = Math.max(retryAfter ?? 0, voiceRetryAfter ?? 0) || null
+
+  useEffect(() => {
+    if (!activeRetryAfter) {
+      setCountdown(null)
+      return
+    }
+    const update = () => {
+      const secs = Math.ceil((activeRetryAfter - Date.now()) / 1000)
+      setCountdown(secs > 0 ? secs : null)
+    }
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [activeRetryAfter])
+
+  const isRateLimited = countdown !== null && countdown > 0
 
   const handleTranslate = async () => {
     const text = inputText.trim()
@@ -108,7 +158,7 @@ export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, resul
             <button
               type="button"
               onClick={toggleRecording}
-              disabled={isProcessing || isLoading}
+              disabled={isProcessing || isLoading || isRateLimited}
               title={isRecording ? "Stop recording" : "Record voice"}
               className={cn(
                 "inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
@@ -128,7 +178,7 @@ export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, resul
             <button
               type="button"
               onClick={handleTranslate}
-              disabled={isLoading || isRecording || isProcessing || !inputText.trim()}
+              disabled={isLoading || isRecording || isProcessing || !inputText.trim() || isRateLimited}
               title="Translate"
               className={cn(
                 "inline-flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200",
@@ -145,12 +195,20 @@ export function InputPanel({ onTranslate, onVoiceResult, isLoading, error, resul
           <p className="text-xs text-text-muted sm:hidden">{statusMessage}</p>
         )}
 
-        {(error || voiceError) && (
+        {isRateLimited ? (
+          <div className="flex gap-2 rounded-[12px] border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-700">
+            <Timer className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>
+              Rate limit reached — try again in{" "}
+              <span className="font-semibold tabular-nums">{formatCountdown(countdown!)}</span>
+            </span>
+          </div>
+        ) : (error || voiceError) ? (
           <div className="flex gap-2 rounded-[12px] border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-600">
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <span>{error || voiceError}</span>
           </div>
-        )}
+        ) : null}
       </div>
 
       <div className="divider" />

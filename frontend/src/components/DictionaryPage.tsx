@@ -3,7 +3,7 @@ import { Search, SlidersHorizontal } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 import { SignDetailPage } from "@/components/SignDetailPage"
-import { getCategoryMeta } from "@/lib/categories"
+import { getTagStyle, setTagConfig, type TagStyle } from "@/lib/categories"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 const PAGE_SIZE = 100
@@ -14,7 +14,6 @@ async function authHeaders(): Promise<Record<string, string>> {
   const token = await user.getIdToken()
   return { Authorization: `Bearer ${token}` }
 }
-
 
 function formatSignLabel(token: string): string {
   return token
@@ -27,17 +26,14 @@ interface DictionarySign {
   token: string
   sign_name: string
   gif_url: string
-  category?: string
+  tags: string[]
 }
 
 interface LessonSummary {
   lesson_id: string
   lesson_name: string
-}
-
-interface LessonDetail {
-  lesson_name: string
-  signs: Array<{ token: string; sign_name: string; gif_url: string }>
+  difficulty?: string
+  tags: string[]
 }
 
 interface SignsResponse {
@@ -48,19 +44,22 @@ interface SignsResponse {
 
 export interface DictionaryPageProps {
   onNavigate: (dest: NavMode | "home") => void
-  onSignOut: () => void
+  onSignOut?: () => void
   isAdmin?: boolean
+  isLoggedIn?: boolean
 }
 
-export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPageProps) {
+export function DictionaryPage({ onNavigate, onSignOut, isAdmin, isLoggedIn = true }: DictionaryPageProps) {
   const [search, setSearch] = useState("")
-  const [activeCategory, setActiveCategory] = useState("All")
+  const [activeTag, setActiveTag] = useState("All")
   const [selectedSign, setSelectedSign] = useState<DictionarySign | null>(null)
   const [allSigns, setAllSigns] = useState<DictionarySign[]>([])
   const [searchSigns, setSearchSigns] = useState<DictionarySign[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
-  const [tokenToCategory, setTokenToCategory] = useState<Record<string, string>>({})
-  const [categories, setCategories] = useState<string[]>([])
+  // token → all tags (lesson name + difficulty + custom tags)
+  const [tokenToTags, setTokenToTags] = useState<Record<string, string[]>>({})
+  const [tagToSigns, setTagToSigns] = useState<Record<string, DictionarySign[]>>({})
+  const [allTags, setAllTags] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [offset, setOffset] = useState(0)
@@ -75,39 +74,80 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
       try {
         const headers = await authHeaders()
 
-        const [lessonsRes, signsRes] = await Promise.all([
+        const [tagConfigRes, lessonsRes, signsRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/learning/tag-config`, { headers }),
           fetch(`${API_BASE_URL}/api/learning/lessons`, { headers }),
           fetch(`${API_BASE_URL}/api/learning/signs?q=&limit=${PAGE_SIZE}&offset=0`, { headers }),
         ])
 
         if (!lessonsRes.ok || !signsRes.ok) throw new Error("Fetch failed")
 
-        const [lessons, signsData]: [LessonSummary[], SignsResponse] = await Promise.all([
+        const [tagConfig, lessons, signsData]: [
+          Record<string, TagStyle>,
+          LessonSummary[],
+          SignsResponse,
+        ] = await Promise.all([
+          tagConfigRes.ok ? tagConfigRes.json() : Promise.resolve({}),
           lessonsRes.json(),
           signsRes.json(),
         ])
 
-        const detailResults: LessonDetail[] = await Promise.all(
+        if (cancelled) return
+
+        setTagConfig(tagConfig)
+
+        // Build token → tags map from lesson data
+        // Each lesson contributes: its lesson_name + difficulty + custom tags
+        const tagMap: Record<string, string[]> = {}
+        const tagSet = new Set<string>()
+
+        for (const lesson of lessons) {
+          const lessonTags: string[] = [lesson.lesson_name]
+          if (lesson.difficulty) lessonTags.push(lesson.difficulty)
+          lessonTags.push(...lesson.tags)
+
+          for (const tag of lessonTags) tagSet.add(tag)
+
+          // We need lesson detail to know which tokens belong to it.
+          // We'll fetch details next.
+          ;(lesson as LessonSummary & { _tags: string[] })._tags = lessonTags
+        }
+
+        // Fetch lesson details to get token lists
+        const details = await Promise.all(
           lessons.map((l) =>
-            fetch(`${API_BASE_URL}/api/learning/lessons/${l.lesson_id}`, { headers }).then((r) => r.json())
+            fetch(`${API_BASE_URL}/api/learning/lessons/${l.lesson_id}`, { headers })
+              .then((r) => r.json())
           )
         )
 
         if (cancelled) return
 
-        const catMap: Record<string, string> = {}
-        const cats: string[] = []
-        for (const detail of detailResults) {
-          const catName = detail.lesson_name
-          if (!cats.includes(catName)) cats.push(catName)
-          for (const sign of detail.signs) {
-            catMap[sign.token] = catName
+        const tagSignsMap: Record<string, DictionarySign[]> = {}
+
+        for (let i = 0; i < lessons.length; i++) {
+          const lessonTags = (lessons[i] as LessonSummary & { _tags: string[] })._tags
+          for (const sign of details[i].signs ?? []) {
+            if (!tagMap[sign.token]) tagMap[sign.token] = []
+            for (const tag of lessonTags) {
+              if (!tagMap[sign.token].includes(tag)) tagMap[sign.token].push(tag)
+              if (!tagSignsMap[tag]) tagSignsMap[tag] = []
+              if (!tagSignsMap[tag].some((s) => s.token === sign.token)) {
+                tagSignsMap[tag].push({ ...sign, tags: [] }) // tags filled in below
+              }
+            }
           }
         }
 
-        setCategories(cats)
-        setTokenToCategory(catMap)
-        setAllSigns(signsData.signs.map((s) => ({ ...s, category: catMap[s.token] })))
+        // Attach full tag list to each sign in tagToSigns
+        for (const signs of Object.values(tagSignsMap)) {
+          for (const sign of signs) sign.tags = tagMap[sign.token] ?? []
+        }
+
+        setTokenToTags(tagMap)
+        setTagToSigns(tagSignsMap)
+        setAllTags(Array.from(tagSet))
+        setAllSigns(signsData.signs.map((s) => ({ ...s, tags: tagMap[s.token] ?? [] })))
         setHasMore(signsData.has_more)
         setTotal(signsData.total)
         setOffset(PAGE_SIZE)
@@ -140,7 +180,7 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
         )
         if (!res.ok) throw new Error("Fetch failed")
         const data: SignsResponse = await res.json()
-        setSearchSigns(data.signs.map((s) => ({ ...s, category: tokenToCategory[s.token] })))
+        setSearchSigns(data.signs.map((s) => ({ ...s, tags: tokenToTags[s.token] ?? [] })))
       } catch (err) {
         console.error(err)
       } finally {
@@ -150,7 +190,7 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
     return () => {
       if (searchDebounce.current) clearTimeout(searchDebounce.current)
     }
-  }, [search, tokenToCategory])
+  }, [search, tokenToTags])
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return
@@ -165,7 +205,7 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
       const data: SignsResponse = await res.json()
       setAllSigns((prev) => [
         ...prev,
-        ...data.signs.map((s) => ({ ...s, category: tokenToCategory[s.token] })),
+        ...data.signs.map((s) => ({ ...s, tags: tokenToTags[s.token] ?? [] })),
       ])
       setHasMore(data.has_more)
       setOffset((o) => o + PAGE_SIZE)
@@ -174,16 +214,13 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
     } finally {
       setLoadingMore(false)
     }
-  }, [loadingMore, hasMore, offset, tokenToCategory])
+  }, [loadingMore, hasMore, offset, tokenToTags])
 
   const filteredSigns = useMemo(() => {
-    const isSearching = search.trim().length > 0
-    let result = isSearching ? searchSigns : allSigns
-    if (!isSearching && activeCategory !== "All") {
-      result = result.filter((s) => s.category === activeCategory)
-    }
-    return result
-  }, [allSigns, searchSigns, activeCategory, search])
+    if (search.trim().length > 0) return searchSigns
+    if (activeTag !== "All") return tagToSigns[activeTag] ?? []
+    return allSigns
+  }, [allSigns, searchSigns, tagToSigns, activeTag, search])
 
   if (selectedSign) {
     return (
@@ -195,6 +232,7 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
         onNavigate={onNavigate}
         onSignOut={onSignOut}
         isAdmin={isAdmin}
+        isLoggedIn={isLoggedIn}
       />
     )
   }
@@ -204,8 +242,9 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
       <AppNavbar
         activeMode="dictionary"
         onNavigate={(dest) => onNavigate(dest)}
-        onLogout={onSignOut}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
+        isLoggedIn={isLoggedIn}
       />
 
       {/* Hero */}
@@ -245,20 +284,20 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-3">
             <SlidersHorizontal className="w-4 h-4 text-[#4a5565]" />
-            <span className="text-[14px] font-medium text-[#4a5565]">Filter by category</span>
+            <span className="text-[14px] font-medium text-[#4a5565]">Filter by tag</span>
           </div>
           <div className="flex flex-wrap gap-2">
-            {["All", ...categories].map((cat) => (
+            {["All", ...allTags].map((tag) => (
               <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
+                key={tag}
+                onClick={() => setActiveTag(tag)}
                 className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-all border ${
-                  activeCategory === cat
+                  activeTag === tag
                     ? "bg-[#6176f7] text-white border-transparent shadow-sm"
                     : "bg-white text-[#4a5565] border-[#e5e7eb] hover:border-[#6176f7]/40"
                 }`}
               >
-                {cat}
+                {tag}
               </button>
             ))}
           </div>
@@ -271,7 +310,7 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
           ) : (
             <>
               Showing <span className="font-semibold text-[#1e2939]">{filteredSigns.length}</span>
-              {!search && activeCategory === "All" && total > allSigns.length && (
+              {!search && activeTag === "All" && total > allSigns.length && (
                 <span> of <span className="font-semibold text-[#1e2939]">{total}</span></span>
               )} signs
             </>
@@ -292,7 +331,6 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredSigns.map((sign) => {
                 const label = formatSignLabel(sign.token)
-                const { color, difficulty } = getCategoryMeta(sign.category)
                 return (
                   <button
                     key={sign.token}
@@ -308,25 +346,26 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
                     </div>
                     <div className="p-4">
                       <p className="text-[16px] font-semibold text-[#101828] mb-1.5">{label}</p>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {sign.category && (
-                          <span
-                            className="px-2 py-0.5 rounded-full text-[12px] font-medium text-white"
-                            style={{ backgroundColor: color }}
-                          >
-                            {sign.category}
-                          </span>
-                        )}
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[12px] font-medium border ${
-                            difficulty === "Beginner"
-                              ? "bg-[#f0fdf4] border-[#b9f8cf] text-[#008236]"
-                              : "bg-[#fefce8] border-[#fff085] text-[#a65f00]"
-                          }`}
-                        >
-                          {difficulty}
-                        </span>
-                      </div>
+                      {sign.tags.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {sign.tags.map((tag) => {
+                            const style = getTagStyle(tag)
+                            return (
+                              <span
+                                key={tag}
+                                className="px-2 py-0.5 rounded-full text-[12px] font-medium border"
+                                style={{
+                                  backgroundColor: style.bg,
+                                  color: style.color,
+                                  borderColor: style.border ?? style.bg,
+                                }}
+                              >
+                                {tag}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                   </button>
                 )
@@ -334,7 +373,7 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin }: DictionaryPag
             </div>
 
             {/* Load more */}
-            {hasMore && !search.trim() && activeCategory === "All" && (
+            {hasMore && !search.trim() && activeTag === "All" && (
               <div className="flex justify-center mt-8">
                 <button
                   onClick={loadMore}

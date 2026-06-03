@@ -8,7 +8,27 @@ import {
   signInWithPopup,
 } from "firebase/auth"
 import { auth } from "@/lib/firebase"
-import { AuthContext, type ApprovalStatus } from "./auth-context"
+import { AuthContext, type ApprovalStatus, type AuthContextType } from "./auth-context"
+
+// Set VITE_AUTH_ENABLED=false to run without authentication (demo / open-access mode).
+// All existing auth code remains intact; flip the flag to re-enable.
+const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED !== "false"
+
+const BYPASS_CONTEXT: AuthContextType = {
+  user: { uid: "demo" } as unknown as import("firebase/auth").User,
+  loading: false,
+  approvalStatus: "approved",
+  isAdmin: false,
+  signupRejected: false,
+  login: async () => {},
+  signup: async () => {},
+  loginWithGoogle: async () => {},
+  logout: async () => {},
+}
+
+function NoAuthProvider({ children }: { children: ReactNode }) {
+  return <AuthContext.Provider value={BYPASS_CONTEXT}>{children}</AuthContext.Provider>
+}
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 
@@ -60,7 +80,7 @@ async function validatePasswordStrength(email: string, password: string): Promis
   throw Object.assign(new Error(detail), { code: "auth/weak-password-backend" })
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+function RealAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<import("firebase/auth").User | null>(null)
   const [loading, setLoading] = useState(true)
   const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("unknown")
@@ -69,17 +89,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.debug("[Auth][state-change] received", {
+        hasUser: !!firebaseUser,
+        uid: firebaseUser?.uid ?? null,
+        pathname: window.location.pathname,
+      })
       if (firebaseUser) {
         try {
           const [{ status }, adminClaim] = await Promise.all([
             syncUserRegistration(firebaseUser),
             getAdminClaim(firebaseUser),
           ])
+          console.debug("[Auth][state-change] resolved", {
+            hasUser: true,
+            uid: firebaseUser.uid,
+            status,
+            isAdmin: adminClaim,
+            pathname: window.location.pathname,
+          })
           setUser(firebaseUser)
           setApprovalStatus(status)
           setIsAdmin(adminClaim)
           setSignupRejected(false)
         } catch (err: unknown) {
+          console.debug("[Auth][state-change] resolve-error", {
+            hasUser: true,
+            uid: firebaseUser.uid,
+            code: err instanceof Error ? (err as { code?: string }).code ?? "unknown" : "unknown",
+            pathname: window.location.pathname,
+          })
           if (err instanceof Error && (err as { code?: string }).code === "auth/email-not-allowed") {
             setUser(null)
             setApprovalStatus("unknown")
@@ -92,6 +130,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } else {
+        console.debug("[Auth][state-change] signed-out", {
+          hasUser: false,
+          pathname: window.location.pathname,
+        })
         setUser(null)
         setApprovalStatus("unknown")
         setIsAdmin(false)
@@ -102,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (email: string, password: string) => {
+    console.debug("[Auth][login] attempt", { email })
     setSignupRejected(false)
     await signInWithEmailAndPassword(auth, email, password)
   }
@@ -113,12 +156,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const loginWithGoogle = async () => {
+    console.debug("[Auth][login-google] attempt")
     setSignupRejected(false)
     const provider = new GoogleAuthProvider()
     await signInWithPopup(auth, provider)
   }
 
   const logout = async () => {
+    console.debug("[Auth][logout] attempt", { pathname: window.location.pathname })
     setSignupRejected(false)
     await signOut(auth)
   }
@@ -128,4 +173,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   )
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  return AUTH_ENABLED ? <RealAuthProvider>{children}</RealAuthProvider> : <NoAuthProvider>{children}</NoAuthProvider>
 }

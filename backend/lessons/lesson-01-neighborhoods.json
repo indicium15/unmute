@@ -4,5 +4,7 @@
   "description": "Learn the signs for popular neighborhoods and towns across Singapore.",
   "emoji": "🗺️",
   "order": 1,
+  "difficulty": "Beginner",
+  "tags": ["Places"],
   "tokens": ["BEDOK", "TAMPINES", "ORCHARD", "WOODLANDS", "YISHUN", "ANG_MO_KIO", "TOA_PAYOH", "BISHAN", "CLEMENTI", "JURONG_EAST", "QUEENSTOWN", "TIONG_BAHRU"]
 }
