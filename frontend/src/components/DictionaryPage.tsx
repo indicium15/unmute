@@ -1,19 +1,10 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Search, SlidersHorizontal } from "lucide-react"
-import { auth } from "@/lib/firebase"
 import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 import { SignDetailPage } from "@/components/SignDetailPage"
-import { getTagStyle, setTagConfig, type TagStyle } from "@/lib/categories"
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
-const PAGE_SIZE = 100
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const user = auth.currentUser
-  if (!user) return {}
-  const token = await user.getIdToken()
-  return { Authorization: `Bearer ${token}` }
-}
+import { Footer } from "@/components/Footer"
+import { getTagStyle } from "@/lib/categories"
+import { useSignCatalog, type CatalogSign } from "@/hooks/useSignCatalog"
 
 function formatSignLabel(token: string): string {
   return token
@@ -22,199 +13,50 @@ function formatSignLabel(token: string): string {
     .replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
-interface DictionarySign {
-  token: string
-  sign_name: string
-  gif_url: string
-  tags: string[]
-}
-
-interface LessonSummary {
-  lesson_id: string
-  lesson_name: string
-  difficulty?: string
-  tags: string[]
-}
-
-interface SignsResponse {
-  signs: Array<{ token: string; sign_name: string; gif_url: string }>
-  has_more: boolean
-  total: number
-}
-
 export interface DictionaryPageProps {
   onNavigate: (dest: NavMode | "home") => void
   onSignOut?: () => void
   isAdmin?: boolean
   isLoggedIn?: boolean
+  initialToken?: string
+  onInitialTokenConsumed?: () => void
 }
 
-export function DictionaryPage({ onNavigate, onSignOut, isAdmin, isLoggedIn = true }: DictionaryPageProps) {
-  const [search, setSearch] = useState("")
+export function DictionaryPage({
+  onNavigate,
+  onSignOut,
+  isAdmin,
+  isLoggedIn = true,
+  initialToken,
+  onInitialTokenConsumed,
+}: DictionaryPageProps) {
   const [activeTag, setActiveTag] = useState("All")
-  const [selectedSign, setSelectedSign] = useState<DictionarySign | null>(null)
-  const [allSigns, setAllSigns] = useState<DictionarySign[]>([])
-  const [searchSigns, setSearchSigns] = useState<DictionarySign[]>([])
-  const [searchLoading, setSearchLoading] = useState(false)
-  // token → all tags (lesson name + difficulty + custom tags)
-  const [tokenToTags, setTokenToTags] = useState<Record<string, string[]>>({})
-  const [tagToSigns, setTagToSigns] = useState<Record<string, DictionarySign[]>>({})
-  const [allTags, setAllTags] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
-  const [offset, setOffset] = useState(0)
-  const [hasMore, setHasMore] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [total, setTotal] = useState(0)
-  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [selectedSign, setSelectedSign] = useState<CatalogSign | null>(null)
 
+  const {
+    search,
+    setSearch,
+    allSigns,
+    searchSigns,
+    searchLoading,
+    tagToSigns,
+    allTags,
+    loading,
+    error,
+    hasMore,
+    loadingMore,
+    total,
+    loadMore,
+  } = useSignCatalog()
+
+  // Deep-link: auto-open a specific sign's detail page once the catalog has loaded
   useEffect(() => {
-    let cancelled = false
-    const init = async () => {
-      try {
-        const headers = await authHeaders()
-
-        const [tagConfigRes, lessonsRes, signsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/learning/tag-config`, { headers }),
-          fetch(`${API_BASE_URL}/api/learning/lessons`, { headers }),
-          fetch(`${API_BASE_URL}/api/learning/signs?q=&limit=${PAGE_SIZE}&offset=0`, { headers }),
-        ])
-
-        if (!lessonsRes.ok || !signsRes.ok) throw new Error("Fetch failed")
-
-        const [tagConfig, lessons, signsData]: [
-          Record<string, TagStyle>,
-          LessonSummary[],
-          SignsResponse,
-        ] = await Promise.all([
-          tagConfigRes.ok ? tagConfigRes.json() : Promise.resolve({}),
-          lessonsRes.json(),
-          signsRes.json(),
-        ])
-
-        if (cancelled) return
-
-        setTagConfig(tagConfig)
-
-        // Build token → tags map from lesson data
-        // Each lesson contributes: its lesson_name + difficulty + custom tags
-        const tagMap: Record<string, string[]> = {}
-        const tagSet = new Set<string>()
-
-        for (const lesson of lessons) {
-          const lessonTags: string[] = [lesson.lesson_name]
-          if (lesson.difficulty) lessonTags.push(lesson.difficulty)
-          lessonTags.push(...lesson.tags)
-
-          for (const tag of lessonTags) tagSet.add(tag)
-
-          // We need lesson detail to know which tokens belong to it.
-          // We'll fetch details next.
-          ;(lesson as LessonSummary & { _tags: string[] })._tags = lessonTags
-        }
-
-        // Fetch lesson details to get token lists
-        const details = await Promise.all(
-          lessons.map((l) =>
-            fetch(`${API_BASE_URL}/api/learning/lessons/${l.lesson_id}`, { headers })
-              .then((r) => r.json())
-          )
-        )
-
-        if (cancelled) return
-
-        const tagSignsMap: Record<string, DictionarySign[]> = {}
-
-        for (let i = 0; i < lessons.length; i++) {
-          const lessonTags = (lessons[i] as LessonSummary & { _tags: string[] })._tags
-          for (const sign of details[i].signs ?? []) {
-            if (!tagMap[sign.token]) tagMap[sign.token] = []
-            for (const tag of lessonTags) {
-              if (!tagMap[sign.token].includes(tag)) tagMap[sign.token].push(tag)
-              if (!tagSignsMap[tag]) tagSignsMap[tag] = []
-              if (!tagSignsMap[tag].some((s) => s.token === sign.token)) {
-                tagSignsMap[tag].push({ ...sign, tags: [] }) // tags filled in below
-              }
-            }
-          }
-        }
-
-        // Attach full tag list to each sign in tagToSigns
-        for (const signs of Object.values(tagSignsMap)) {
-          for (const sign of signs) sign.tags = tagMap[sign.token] ?? []
-        }
-
-        setTokenToTags(tagMap)
-        setTagToSigns(tagSignsMap)
-        setAllTags(Array.from(tagSet))
-        setAllSigns(signsData.signs.map((s) => ({ ...s, tags: tagMap[s.token] ?? [] })))
-        setHasMore(signsData.has_more)
-        setTotal(signsData.total)
-        setOffset(PAGE_SIZE)
-      } catch (err) {
-        console.error(err)
-        if (!cancelled) setError("Failed to load dictionary. Please try again.")
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    init()
-    return () => { cancelled = true }
-  }, [])
-
-  // Debounced server-side search
-  useEffect(() => {
-    if (searchDebounce.current) clearTimeout(searchDebounce.current)
-    const q = search.trim()
-    if (!q) {
-      setSearchSigns([])
-      return
-    }
-    searchDebounce.current = setTimeout(async () => {
-      setSearchLoading(true)
-      try {
-        const headers = await authHeaders()
-        const res = await fetch(
-          `${API_BASE_URL}/api/learning/signs?q=${encodeURIComponent(q)}&limit=100&offset=0`,
-          { headers }
-        )
-        if (!res.ok) throw new Error("Fetch failed")
-        const data: SignsResponse = await res.json()
-        setSearchSigns(data.signs.map((s) => ({ ...s, tags: tokenToTags[s.token] ?? [] })))
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setSearchLoading(false)
-      }
-    }, 300)
-    return () => {
-      if (searchDebounce.current) clearTimeout(searchDebounce.current)
-    }
-  }, [search, tokenToTags])
-
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return
-    setLoadingMore(true)
-    try {
-      const headers = await authHeaders()
-      const res = await fetch(
-        `${API_BASE_URL}/api/learning/signs?q=&limit=${PAGE_SIZE}&offset=${offset}`,
-        { headers }
-      )
-      if (!res.ok) throw new Error("Fetch failed")
-      const data: SignsResponse = await res.json()
-      setAllSigns((prev) => [
-        ...prev,
-        ...data.signs.map((s) => ({ ...s, tags: tokenToTags[s.token] ?? [] })),
-      ])
-      setHasMore(data.has_more)
-      setOffset((o) => o + PAGE_SIZE)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoadingMore(false)
-    }
-  }, [loadingMore, hasMore, offset, tokenToTags])
+    if (!initialToken || allSigns.length === 0) return
+    const match = allSigns.find((s) => s.token === initialToken)
+    if (match) setSelectedSign(match)
+    onInitialTokenConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialToken, allSigns])
 
   const filteredSigns = useMemo(() => {
     if (search.trim().length > 0) return searchSigns
@@ -284,7 +126,7 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin, isLoggedIn = tr
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-3">
             <SlidersHorizontal className="w-4 h-4 text-[#4a5565]" />
-            <span className="text-[14px] font-medium text-[#4a5565]">Filter by tag</span>
+            <span className="text-[14px] font-medium text-[#4a5565]">Filter by category</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {["All", ...allTags].map((tag) => (
@@ -331,42 +173,36 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin, isLoggedIn = tr
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredSigns.map((sign) => {
                 const label = formatSignLabel(sign.token)
+                const badges = [sign.category, sign.difficulty].filter(
+                  (t): t is string => Boolean(t)
+                )
                 return (
                   <button
                     key={sign.token}
                     onClick={() => setSelectedSign(sign)}
-                    className="bg-white border border-[#f3f4f6] rounded-[14px] overflow-hidden hover:border-[#6176f7]/30 hover:shadow-md transition-all text-left cursor-pointer w-full"
+                    className="bg-white border border-[#f3f4f6] rounded-[14px] p-4 hover:border-[#6176f7]/30 hover:shadow-md transition-all text-left cursor-pointer w-full"
                   >
-                    <div className="flex items-center justify-center bg-gray-50 h-[160px] overflow-hidden">
-                      <img
-                        src={sign.gif_url}
-                        alt={`Sign for ${label}`}
-                        className="h-full w-full object-contain"
-                      />
-                    </div>
-                    <div className="p-4">
-                      <p className="text-[16px] font-semibold text-[#101828] mb-1.5">{label}</p>
-                      {sign.tags.length > 0 && (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {sign.tags.map((tag) => {
-                            const style = getTagStyle(tag)
-                            return (
-                              <span
-                                key={tag}
-                                className="px-2 py-0.5 rounded-full text-[12px] font-medium border"
-                                style={{
-                                  backgroundColor: style.bg,
-                                  color: style.color,
-                                  borderColor: style.border ?? style.bg,
-                                }}
-                              >
-                                {tag}
-                              </span>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
+                    <p className="text-[16px] font-semibold text-[#101828] mb-1.5">{label}</p>
+                    {badges.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {badges.map((tag) => {
+                          const style = getTagStyle(tag)
+                          return (
+                            <span
+                              key={tag}
+                              className="px-2 py-0.5 rounded-full text-[12px] font-medium border"
+                              style={{
+                                backgroundColor: style.bg,
+                                color: style.color,
+                                borderColor: style.border ?? style.bg,
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    )}
                   </button>
                 )
               })}
@@ -395,65 +231,7 @@ export function DictionaryPage({ onNavigate, onSignOut, isAdmin, isLoggedIn = tr
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-[#f9fafb] border-t border-gray-100 mt-8">
-        <div className="max-w-[900px] mx-auto px-6 pt-10 pb-6">
-          <div className="grid grid-cols-3 gap-12 mb-8">
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-[10px] bg-[#6176f7] flex items-center justify-center flex-shrink-0">
-                  <img src="/home/icon-logo-footer.svg" alt="" className="w-4 h-4" />
-                </div>
-                <span className="text-[16px] font-semibold text-[#1e2939]">Kinnect</span>
-              </div>
-              <p className="text-[14px] leading-[22.75px] text-[#6a7282]">
-                Empowering communication through Singapore Sign Language making SgSL accessible to everyone.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <p className="text-[14px] font-semibold text-[#364153]">Explore</p>
-              <ul className="flex flex-col gap-2">
-                <li>
-                  <button
-                    onClick={() => onNavigate("home")}
-                    className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors"
-                  >
-                    Home
-                  </button>
-                </li>
-                <li>
-                  <span className="text-[14px] font-medium text-[#6176f7]">SgSL Dictionary</span>
-                </li>
-                <li>
-                  <button
-                    onClick={() => onNavigate("learn")}
-                    className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors"
-                  >
-                    Learn SgSL
-                  </button>
-                </li>
-              </ul>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <p className="text-[14px] font-semibold text-[#364153]">About</p>
-              <p className="text-[14px] leading-5 text-[#6a7282]">
-                Singapore Sign Language (SgSL) is the natural language used by the Deaf community in Singapore.
-              </p>
-            </div>
-          </div>
-
-          <div className="border-t border-[#e5e7eb] pt-6 flex items-center justify-between">
-            <p className="text-[12px] text-[#99a1af]">© 2026 Kinnect. All rights reserved.</p>
-            <p className="text-[12px] text-[#99a1af] flex items-center gap-1">
-              Made with
-              <img src="/home/icon-heart.svg" alt="love" className="w-3 h-3" />
-              for the Deaf community in Singapore
-            </p>
-          </div>
-        </div>
-      </footer>
+      <Footer onNavigate={onNavigate} />
     </div>
   )
 }

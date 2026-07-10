@@ -567,3 +567,120 @@ def set_user_admin(uid: str, is_admin: bool, set_by: Optional[str] = None) -> bo
     except Exception as exc:
         logger.error("[DB] Failed to set admin claim for %s: %s", uid, exc)
         return False
+
+
+# ── Lesson progress ───────────────────────────────────────────────────────────
+# Stored as a subcollection users/{uid}/lesson_progress/{lesson_id} rather than a
+# nested map on the users/{uid} doc — keeps writes to one lesson from contending
+# with (or bloating reads of) another, and keeps the identity doc small for the
+# admin user listing. See plan doc for the full rationale.
+
+def _lesson_progress_ref(uid: str, lesson_id: str):
+    db = get_db()
+    if db is None:
+        return None
+    return db.collection("users").document(uid).collection("lesson_progress").document(lesson_id)
+
+
+def get_lesson_progress(uid: str, lesson_id: str) -> Optional[dict]:
+    """Return a single lesson's progress doc for a user, or None if untouched."""
+    ref = _lesson_progress_ref(uid, lesson_id)
+    if ref is None:
+        return None
+    try:
+        doc = ref.get()
+        return _serialize_doc(doc.to_dict()) if doc.exists else None
+    except Exception as exc:
+        logger.error("[DB] Failed to get lesson progress for %s/%s: %s", uid, lesson_id, exc)
+        return None
+
+
+def get_all_lesson_progress(uid: str) -> list[dict]:
+    """Return every lesson_progress doc for a user (drives landing-page stats)."""
+    db = get_db()
+    if db is None:
+        return []
+    try:
+        docs = db.collection("users").document(uid).collection("lesson_progress").stream()
+        return [{"lesson_id": doc.id, **_serialize_doc(doc.to_dict())} for doc in docs]
+    except Exception as exc:
+        logger.error("[DB] Failed to get all lesson progress for %s: %s", uid, exc)
+        return []
+
+
+def upsert_sign_progress(uid: str, lesson_id: str, token: str, total_signs: int) -> Optional[dict]:
+    """Mark a sign as viewed within a lesson; flips ``completed`` once every token
+    in the lesson has been viewed at least once.
+    """
+    ref = _lesson_progress_ref(uid, lesson_id)
+    if ref is None:
+        return None
+    try:
+        from firebase_admin import firestore
+
+        now = datetime.now(timezone.utc)
+        is_new = not ref.get().exists
+
+        ref.set({
+            "lesson_id": lesson_id,
+            "signs_viewed": firestore.ArrayUnion([token]),
+            "updated_at": now,
+            **({"created_at": now, "completed": False} if is_new else {}),
+        }, merge=True)
+
+        data = ref.get().to_dict()
+        signs_viewed = data.get("signs_viewed", [])
+        if len(signs_viewed) >= total_signs and not data.get("completed"):
+            ref.update({"completed": True, "completed_at": now})
+            data["completed"] = True
+            data["completed_at"] = now
+
+        logger.info("[DB] Sign '%s' marked viewed for user %s in lesson %s", token, uid, lesson_id)
+        return _serialize_doc(data)
+    except Exception as exc:
+        logger.error("[DB] Failed to upsert sign progress for %s/%s/%s: %s", uid, lesson_id, token, exc)
+        return None
+
+
+def record_quiz_attempt(uid: str, lesson_id: str, score: int, total: int) -> Optional[dict]:
+    """Record a quiz attempt for a lesson: increments the attempt count and
+    updates the best score, atomically, inside a single-document transaction.
+    """
+    ref = _lesson_progress_ref(uid, lesson_id)
+    if ref is None:
+        return None
+    try:
+        from firebase_admin import firestore
+
+        now = datetime.now(timezone.utc)
+        transaction = get_db().transaction()
+
+        @firestore.transactional
+        def _apply(transaction):
+            snapshot = ref.get(transaction=transaction)
+            data = snapshot.to_dict() if snapshot.exists else {}
+            best_score = data.get("quiz_best_score", -1)
+            update = {
+                "lesson_id": lesson_id,
+                "quiz_attempts": firestore.Increment(1),
+                "last_quiz_score": score,
+                "last_quiz_total": total,
+                "last_attempted_at": now,
+                "updated_at": now,
+            }
+            if not data:
+                update["created_at"] = now
+                update["signs_viewed"] = []
+                update["completed"] = False
+            if score > best_score:
+                update["quiz_best_score"] = score
+                update["quiz_best_total"] = total
+            transaction.set(ref, update, merge=True)
+
+        _apply(transaction)
+
+        logger.info("[DB] Quiz attempt recorded for user %s in lesson %s: %d/%d", uid, lesson_id, score, total)
+        return _serialize_doc(ref.get().to_dict())
+    except Exception as exc:
+        logger.error("[DB] Failed to record quiz attempt for %s/%s: %s", uid, lesson_id, exc)
+        return None

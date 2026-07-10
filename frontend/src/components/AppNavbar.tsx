@@ -14,18 +14,8 @@ interface AppNavbarProps {
   isLoggedIn?: boolean
 }
 
-export function AppNavbar({ activeMode, onNavigate, onLogout, isAdmin, isLoggedIn = true }: AppNavbarProps) {
+export function AppNavbar({ activeMode, onNavigate, onLogout, isAdmin, isLoggedIn = false }: AppNavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
-
-  const handleAuthClick = () => {
-    console.debug("[Navbar][auth-click]", {
-      activeMode,
-      isLoggedIn,
-      pathname: window.location.pathname,
-      action: isLoggedIn ? "logout" : "login",
-    })
-    onLogout()
-  }
 
   const navItems = [
     { mode: "home" as NavMode, label: "Home" },
@@ -76,7 +66,7 @@ export function AppNavbar({ activeMode, onNavigate, onLogout, isAdmin, isLoggedI
         <div className="flex items-center gap-2">
           {AUTH_ENABLED && (
             <button
-              onClick={handleAuthClick}
+              onClick={onLogout}
               title={isLoggedIn ? "Sign out" : "Sign in"}
               className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-[#6a7282] hover:text-[#4a5565] hover:bg-gray-100 transition-all duration-200 flex-shrink-0"
             >

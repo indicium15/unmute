@@ -1,7 +1,9 @@
 import { useState } from "react"
-import { useVoiceRecording } from "@/hooks/useVoiceRecording"
+// TODO: re-enable once we have access to a working transcription model on Azure OpenAI.
+// import { useVoiceRecording } from "@/hooks/useVoiceRecording"
 import type { TranslationResult } from "@/hooks/useTranslation"
 import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { Footer } from "@/components/Footer"
 
 interface HomePageProps {
   onNavigate: (mode: NavMode) => void
@@ -20,13 +22,14 @@ const SUGGESTED_PHRASES = [
   "I am hungry, want to go for supper tonight?",
 ]
 
-export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isAdmin, isLoggedIn = true }: HomePageProps) {
+export function HomePage({ onNavigate, onTranslate, onLogout, isAdmin, isLoggedIn = true }: HomePageProps) {
   const [inputText, setInputText] = useState("")
 
-  const { isRecording, isProcessing, toggleRecording } = useVoiceRecording({
-    onTranscription: (text) => setInputText(text),
-    onResult: (result) => onVoiceResult?.(result),
-  })
+  // TODO: re-enable once we have access to a working transcription model on Azure OpenAI.
+  // const { isRecording, isProcessing, toggleRecording } = useVoiceRecording({
+  //   onTranscription: (text) => setInputText(text),
+  //   onResult: (result) => onVoiceResult?.(result),
+  // })
 
   const handleTranslate = () => {
     const text = inputText.trim()
@@ -86,6 +89,7 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
               className="flex-1 text-[16px] text-[#6a7282] placeholder:text-[#99a1af] outline-none bg-transparent min-w-0"
             />
             <div className="pr-2 flex-shrink-0 flex items-center gap-1">
+              {/* TODO: re-enable voice input once we have access to a working transcription model on Azure OpenAI.
               <button
                 onClick={toggleRecording}
                 title={isRecording ? "Stop recording" : "Record voice"}
@@ -111,6 +115,7 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
                   </svg>
                 )}
               </button>
+              */}
               <button
                 onClick={handleTranslate}
                 className="px-5 h-10 rounded-[14px] bg-[#6176f7] text-white text-[14px] font-medium opacity-40 hover:opacity-100 transition-opacity"
@@ -179,86 +184,7 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-[#f9fafb] border-t border-gray-100">
-        <div className="max-w-[1152px] mx-auto px-6 pt-10 pb-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-16 mb-8">
-            {/* Brand */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-[10px] bg-[#6176f7] flex items-center justify-center flex-shrink-0">
-                  <img src="/home/icon-logo-footer.svg" alt="" className="w-4 h-4" />
-                </div>
-                <span className="text-[16px] font-semibold text-[#1e2939]">Kinnect</span>
-              </div>
-              <p className="text-[14px] font-normal leading-[22.75px] text-[#6a7282]">
-                Empowering communication through Singapore Sign Language making SgSL accessible to everyone.
-              </p>
-            </div>
-
-            {/* Explore */}
-            <div className="flex flex-col gap-3">
-              <p className="text-[14px] font-semibold text-[#364153]">Explore</p>
-              <ul className="flex flex-col gap-2">
-                <li>
-                  <button onClick={() => {}} className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors">
-                    Home
-                  </button>
-                </li>
-                <li>
-                  <button onClick={() => onNavigate("dictionary")} className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors">
-                    SgSL Dictionary
-                  </button>
-                </li>
-                <li>
-                  <button onClick={() => onNavigate("learn")} className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors">
-                    Learn SgSL
-                  </button>
-                </li>
-                <li>
-                  <a
-                    href="https://blogs.ntu.edu.sg/sgslsignbank/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[14px] text-[#6a7282] hover:text-[#6176f7] transition-colors"
-                  >
-                    SgSL Signbank
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            {/* About */}
-            <div className="flex flex-col gap-3">
-              <p className="text-[14px] font-semibold text-[#364153]">About</p>
-              <p className="text-[14px] font-normal leading-5 text-[#6a7282]">
-                Singapore Sign Language (SgSL) is the natural language used by the Deaf community in Singapore.
-              </p>
-            </div>
-          </div>
-
-          {/* Bottom bar */}
-          <div className="border-t border-[#e5e7eb] pt-6 flex flex-col sm:flex-row items-center gap-2 sm:justify-between">
-            <p className="text-[12px] text-[#99a1af]">© 2026 Kinnect. All rights reserved.</p>
-            <p className="text-[12px] text-[#99a1af]">
-              Sign data sourced from{" "}
-              <a
-                href="https://blogs.ntu.edu.sg/sgslsignbank/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:text-[#6a7282] transition-colors"
-              >
-                NTU SgSL Signbank
-              </a>
-            </p>
-            <p className="text-[12px] text-[#99a1af] flex items-center gap-1">
-              Made with
-              <img src="/home/icon-heart.svg" alt="love" className="w-3 h-3" />
-              for the Deaf community in Singapore
-            </p>
-          </div>
-        </div>
-      </footer>
+      <Footer onNavigate={onNavigate} />
     </div>
   )
 }

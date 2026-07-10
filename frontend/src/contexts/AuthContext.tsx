@@ -89,35 +89,17 @@ function RealAuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.debug("[Auth][state-change] received", {
-        hasUser: !!firebaseUser,
-        uid: firebaseUser?.uid ?? null,
-        pathname: window.location.pathname,
-      })
       if (firebaseUser) {
         try {
           const [{ status }, adminClaim] = await Promise.all([
             syncUserRegistration(firebaseUser),
             getAdminClaim(firebaseUser),
           ])
-          console.debug("[Auth][state-change] resolved", {
-            hasUser: true,
-            uid: firebaseUser.uid,
-            status,
-            isAdmin: adminClaim,
-            pathname: window.location.pathname,
-          })
           setUser(firebaseUser)
           setApprovalStatus(status)
           setIsAdmin(adminClaim)
           setSignupRejected(false)
         } catch (err: unknown) {
-          console.debug("[Auth][state-change] resolve-error", {
-            hasUser: true,
-            uid: firebaseUser.uid,
-            code: err instanceof Error ? (err as { code?: string }).code ?? "unknown" : "unknown",
-            pathname: window.location.pathname,
-          })
           if (err instanceof Error && (err as { code?: string }).code === "auth/email-not-allowed") {
             setUser(null)
             setApprovalStatus("unknown")
@@ -130,10 +112,6 @@ function RealAuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } else {
-        console.debug("[Auth][state-change] signed-out", {
-          hasUser: false,
-          pathname: window.location.pathname,
-        })
         setUser(null)
         setApprovalStatus("unknown")
         setIsAdmin(false)
@@ -144,7 +122,6 @@ function RealAuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (email: string, password: string) => {
-    console.debug("[Auth][login] attempt", { email })
     setSignupRejected(false)
     await signInWithEmailAndPassword(auth, email, password)
   }
@@ -156,14 +133,12 @@ function RealAuthProvider({ children }: { children: ReactNode }) {
   }
 
   const loginWithGoogle = async () => {
-    console.debug("[Auth][login-google] attempt")
     setSignupRejected(false)
     const provider = new GoogleAuthProvider()
     await signInWithPopup(auth, provider)
   }
 
   const logout = async () => {
-    console.debug("[Auth][logout] attempt", { pathname: window.location.pathname })
     setSignupRejected(false)
     await signOut(auth)
   }

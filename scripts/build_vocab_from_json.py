@@ -57,15 +57,25 @@ def main():
         token_to_sign[token] = base_sign
         sign_to_token[base_sign] = token
 
-        # signs_metadata: summary with label + gif_filename only (no full unit data)
+        # signs_metadata: label + gif_filename + resolved units per variant
         variant_summaries = [
-            {"label": v.get("label"), "gif_filename": v.get("gif_filename")}
+            {
+                "label": v.get("label"),
+                "gif_filename": v.get("gif_filename"),
+                "units": [
+                    {"step": u.get("step"), "filename": u.get("filename")}
+                    for u in v.get("units", [])
+                ],
+            }
             for v in meta.get("variants", [])
         ]
         signs_metadata[base_sign] = {
             "base_sign": base_sign,
             "part_of_speech": meta.get("part_of_speech"),
             "description": meta.get("description"),
+            "visual_guide": meta.get("visual_guide"),
+            "translation_equivalents": meta.get("translation_equivalents"),
+            "parameters": meta.get("parameters", {}),
             "variants": variant_summaries,
         }
         count += 1

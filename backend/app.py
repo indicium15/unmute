@@ -60,12 +60,12 @@ else:
 
 # Components
 def _make_llm_client() -> LLMClient:
-    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
-    if provider == "gemini":
-        from gemini_client import GeminiClient
-        return GeminiClient()
-    from openai_client import OpenAIClient
-    return OpenAIClient()
+    provider = os.environ.get("LLM_PROVIDER", "azure").lower()
+    if provider == "openai":
+        from openai_client import OpenAIClient
+        return OpenAIClient()
+    from azure_openai_client import AzureOpenAIClient
+    return AzureOpenAIClient()
 
 gemini = _make_llm_client()
 sign_mgr = SignSequenceManager()
@@ -88,10 +88,25 @@ class TranslateResponse(BaseModel):
     detected_language: Optional[str] = None
     log_doc_id: Optional[str] = None  # Firestore doc ID for feedback linkage
 
+class LessonSignVariant(BaseModel):
+    sign_name: Optional[str] = None
+    variant_label: Optional[str] = None
+    gif_url: str
+
+class LessonSignUnit(BaseModel):
+    step: Optional[str] = None
+    image_url: str
+
 class LessonSign(BaseModel):
     token: str
     sign_name: Optional[str]
     gif_url: str
+    description: Optional[str] = None
+    visual_guide: Optional[str] = None
+    translation_equivalents: Optional[str] = None
+    parameters: Dict[str, Dict[str, str]] = {}
+    units: List[LessonSignUnit] = []
+    variants: List[LessonSignVariant] = []
 
 class LessonSummary(BaseModel):
     lesson_id: str
@@ -110,6 +125,24 @@ class LessonDetail(BaseModel):
     difficulty: Optional[str]
     tags: List[str]
     signs: List[LessonSign]
+
+class LessonProgress(BaseModel):
+    lesson_id: str
+    signs_viewed: List[str] = []
+    completed: bool = False
+    completed_at: Optional[str] = None
+    quiz_attempts: int = 0
+    quiz_best_score: Optional[int] = None
+    quiz_best_total: Optional[int] = None
+    last_quiz_score: Optional[int] = None
+    last_quiz_total: Optional[int] = None
+    last_attempted_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class QuizAttemptRequest(BaseModel):
+    score: int
+    total: int
 
 # ── Lesson + tag-config loader ────────────────────────────────────────────────
 _LESSONS_DIR = pathlib.Path(__file__).parent / "lessons"
@@ -312,6 +345,7 @@ def _learning_sign_item(token: str) -> Optional[Dict]:
     sign_name = vocab.token_to_video_name(token)
     if not sign_name:
         return None
+    all_variants = vocab.get_variants(token)
     # Only include non-primary variants (label is not None); primary is served via gif_url
     variants = [
         {
@@ -319,15 +353,39 @@ def _learning_sign_item(token: str) -> Optional[Dict]:
             "variant_label": v["label"],
             "gif_url": get_static_url(f"{GCS_SGLS_DATASET_ROOT}/{sign_name}/{v['gif_filename']}"),
         }
-        for v in vocab.get_variants(token)
+        for v in all_variants
         if v.get("label") is not None
     ]
+    primary_variant = next((v for v in all_variants if v.get("label") is None), None)
+    units = [
+        {
+            "step": u.get("step"),
+            "image_url": get_static_url(f"{GCS_SGLS_DATASET_ROOT}/{sign_name}/{u['filename']}"),
+        }
+        for u in (primary_variant.get("units", []) if primary_variant else [])
+        if u.get("filename")
+    ]
+    meta = vocab.signs_metadata.get(sign_name, {})
     return {
         "token": token,
         "sign_name": sign_name,
         "gif_url": get_static_url(f"{GCS_SGLS_DATASET_ROOT}/{sign_name}/primary.gif"),
+        "description": meta.get("description"),
+        "visual_guide": meta.get("visual_guide"),
+        "translation_equivalents": meta.get("translation_equivalents"),
+        "parameters": meta.get("parameters", {}),
+        "units": units,
         "variants": variants,
     }
+
+
+@app.get("/api/learning/sign/{token}")
+def get_learning_sign(token: str, user: dict = Depends(verify_approved_token)):
+    """Return full sign detail (description, parameters, units, variants) for an exact token."""
+    item = _learning_sign_item(token)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Sign not found")
+    return item
 
 
 @app.get("/api/learning/signs")
@@ -394,7 +452,7 @@ def get_tag_config(_user=Depends(optional_approved_token)):
 
 
 @app.get("/api/learning/lessons", response_model=List[LessonSummary])
-def get_lessons(_user=Depends(optional_approved_token)):
+def get_lessons(_user=Depends(verify_approved_token)):
     """Return all lesson summaries (metadata + sign count, no GIF data)."""
     return [
         {
@@ -411,7 +469,7 @@ def get_lessons(_user=Depends(optional_approved_token)):
 
 
 @app.get("/api/learning/lessons/{lesson_id}", response_model=LessonDetail)
-def get_lesson(lesson_id: str, _user=Depends(optional_approved_token)):
+def get_lesson(lesson_id: str, _user=Depends(verify_approved_token)):
     """Return full lesson detail with resolved GIF URLs for all signs."""
     lesson = next((l for l in _lessons if l["lesson_id"] == lesson_id), None)
     if not lesson:
@@ -434,6 +492,62 @@ def get_lesson(lesson_id: str, _user=Depends(optional_approved_token)):
         "tags": lesson.get("tags", []),
         "signs": signs,
     }
+
+
+# ── Lesson progress endpoints ─────────────────────────────────────────────────
+# All require a hard-verified, approved user (progress is inherently per-user)
+# and write synchronously — the client needs the upserted doc echoed back
+# immediately, unlike the fire-and-forget BackgroundTasks logging used for
+# translation/transcription history.
+
+@app.get("/api/learning/progress", response_model=List[LessonProgress])
+def get_learning_progress(user: dict = Depends(verify_approved_token)):
+    """Return all of the caller's lesson progress docs (drives landing-page stats)."""
+    return database.get_all_lesson_progress(user.get("uid"))
+
+
+@app.get("/api/learning/lessons/{lesson_id}/progress", response_model=LessonProgress)
+def get_single_lesson_progress(lesson_id: str, user: dict = Depends(verify_approved_token)):
+    """Return the caller's progress for one lesson (empty default if untouched)."""
+    progress = database.get_lesson_progress(user.get("uid"), lesson_id)
+    return progress or {"lesson_id": lesson_id}
+
+
+@app.post("/api/learning/lessons/{lesson_id}/signs/{token}/viewed", response_model=LessonProgress)
+def mark_sign_viewed(lesson_id: str, token: str, user: dict = Depends(verify_approved_token)):
+    """Mark a sign as viewed within a lesson for the calling user."""
+    lesson = next((l for l in _lessons if l["lesson_id"] == lesson_id), None)
+    if not lesson:
+        raise HTTPException(status_code=404, detail=f"Lesson '{lesson_id}' not found")
+    if token not in lesson.get("tokens", []):
+        raise HTTPException(status_code=400, detail=f"Sign '{token}' is not part of lesson '{lesson_id}'")
+
+    progress = database.upsert_sign_progress(
+        uid=user.get("uid"),
+        lesson_id=lesson_id,
+        token=token,
+        total_signs=len(lesson.get("tokens", [])),
+    )
+    if progress is None:
+        raise HTTPException(status_code=503, detail="Unable to save progress")
+    return progress
+
+
+@app.post("/api/learning/lessons/{lesson_id}/quiz-attempt", response_model=LessonProgress)
+def submit_quiz_attempt(lesson_id: str, req: QuizAttemptRequest, user: dict = Depends(verify_approved_token)):
+    """Record a quiz attempt (score/total) for a lesson for the calling user."""
+    lesson = next((l for l in _lessons if l["lesson_id"] == lesson_id), None)
+    if not lesson:
+        raise HTTPException(status_code=404, detail=f"Lesson '{lesson_id}' not found")
+    if req.total <= 0 or not (0 <= req.score <= req.total):
+        raise HTTPException(status_code=400, detail="Invalid score/total")
+
+    progress = database.record_quiz_attempt(
+        uid=user.get("uid"), lesson_id=lesson_id, score=req.score, total=req.total
+    )
+    if progress is None:
+        raise HTTPException(status_code=503, detail="Unable to save quiz attempt")
+    return progress
 
 
 # ── Feedback endpoint ─────────────────────────────────────────────────────────

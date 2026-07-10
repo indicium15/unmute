@@ -74,12 +74,27 @@ gcloud run deploy kinnect-backend \
   --region asia-southeast1 \
   --memory 1Gi \
   --allow-unauthenticated \
-  --set-env-vars USE_GCS=true,GCS_BUCKET_NAME=kinnect-sgsl-datasets,LLM_PROVIDER=openai,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json \
-  --set-secrets OPENAI_API_KEY=openai-api-key:latest,/secrets/firebase-key.json=firebase-key:latest \
+  --set-env-vars USE_GCS=true,GCS_BUCKET_NAME=kinnect-sgsl-datasets,LLM_PROVIDER=azure,AZURE_OPENAI_ENDPOINT=https://bettersg-openai-sea-prod.openai.azure.com/,AZURE_OPENAI_API_VERSION=2025-04-01-preview,AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json \
+  --set-secrets AZURE_OPENAI_API_KEY=azure-openai-api-key:latest,/secrets/firebase-key.json=firebase-key:latest \
   --project kinnect-sgsl
 ```
 
 After deploying, copy the Cloud Run URL from the output — you'll need it for the frontend `.env`.
+
+### Creating the Azure OpenAI secret (one-time)
+
+```bash
+read -s AZURE_OPENAI_API_KEY
+printf "%s" "$AZURE_OPENAI_API_KEY" | gcloud secrets create azure-openai-api-key --data-file=- --project kinnect-sgsl
+unset AZURE_OPENAI_API_KEY
+
+gcloud secrets add-iam-policy-binding azure-openai-api-key \
+  --member="serviceAccount:486007040576-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project kinnect-sgsl
+```
+
+To rotate the key later, follow the same pattern as `docs/GEMINI_KEY_ROTATION.md` (that doc is titled for the OpenAI key but the steps — `gcloud secrets versions add`, disable the old version, restart Cloud Run — apply identically to `azure-openai-api-key`).
 
 ## Redeploying after code changes
 
@@ -92,8 +107,11 @@ gcloud run deploy kinnect-backend --image gcr.io/kinnect-sgsl/kinnect-backend --
 
 | Variable | Value |
 |---|---|
-| `OPENAI_API_KEY` | From Secret Manager (`openai-api-key:latest`) |
-| `LLM_PROVIDER` | `openai` |
+| `AZURE_OPENAI_API_KEY` | From Secret Manager (`azure-openai-api-key:latest`) |
+| `AZURE_OPENAI_ENDPOINT` | `https://bettersg-openai-sea-prod.openai.azure.com/` |
+| `AZURE_OPENAI_API_VERSION` | `2025-04-01-preview` |
+| `AZURE_OPENAI_DEPLOYMENT` | `gpt-5.4-mini` (deployment name — confirm this matches the actual Azure deployment name for the model version 2026-03-17) |
+| `LLM_PROVIDER` | `azure` |
 | `USE_GCS` | `true` |
 | `GCS_BUCKET_NAME` | `kinnect-sgsl-datasets` |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | `/secrets/firebase-key.json` |
