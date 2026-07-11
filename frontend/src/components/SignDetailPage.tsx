@@ -34,7 +34,7 @@ export function SignDetailPage({
 
   // Related signs share at least one tag with this sign
   const related = relatedSigns
-    .filter((s) => s.token !== sign.token && s.tags.some((t) => sign.tags.includes(t)))
+    .filter((s) => s.token !== sign.token && (s.tags ?? []).some((t) => (sign.tags ?? []).includes(t)))
     .slice(0, 4)
 
   return (
@@ -58,7 +58,7 @@ export function SignDetailPage({
             Back
           </button>
           <div className="flex items-center gap-2 mb-3 flex-wrap">
-            {sign.tags.map((tag) => (
+            {(sign.tags ?? []).map((tag) => (
               <span
                 key={tag}
                 className="px-2.5 py-1 rounded-full text-[12px] font-medium text-white"

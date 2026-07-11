@@ -1,0 +1,10 @@
+{
+  "lesson_id": "lesson-05-emotions",
+  "lesson_name": "Emotions",
+  "description": "Learn the signs for common feelings and emotions.",
+  "emoji": "😊",
+  "order": 5,
+  "difficulty": "Beginner",
+  "tags": ["Emotions"],
+  "tokens": ["HAPPY", "SAD", "ANGRY", "SCARED", "AFRAID", "TIRED", "EXCITED", "SURPRISE", "SHY", "JEALOUS", "CALM"]
+}

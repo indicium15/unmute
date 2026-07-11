@@ -5,7 +5,8 @@ import io
 from typing import List, Dict, Any, Optional
 
 from dotenv import load_dotenv
-from openai import AzureOpenAI
+from openai import AzureOpenAI, AsyncOpenAI
+from pydub import AudioSegment
 
 from llm_client import LLMClient
 from vocab import vocab
@@ -13,7 +14,14 @@ from vocab import vocab
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 TEXT_MODEL = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-5.4-mini")
-AUDIO_MODEL = os.environ.get("AZURE_OPENAI_WHISPER_DEPLOYMENT", "whisper-1")
+
+# Audio transcription runs on a separate Azure resource that hosts the realtime
+# transcription models (gpt-realtime-whisper is only reachable via the realtime
+# websocket API, not the batch /audio/transcriptions REST endpoint).
+WHISPER_MODEL = os.environ.get("AZURE_WHISPER_DEPLOYMENT", "gpt-realtime-whisper")
+WHISPER_ENDPOINT = os.environ.get("AZURE_WHISPER_ENDPOINT")
+WHISPER_API_KEY = os.environ.get("AZURE_WHISPER_OPENAI_API_KEY")
+REALTIME_SAMPLE_RATE = 24000
 
 
 class AzureOpenAIClient(LLMClient):
@@ -90,34 +98,72 @@ Output JSON format strictly (no markdown, no code blocks):
             return {"gloss": [], "unmatched": [], "error": str(e)}
 
     def transcribe_audio(self, audio_base64: str, mime_type: str = "audio/webm", language: Optional[str] = None) -> Dict[str, Any]:
-        if not self.client:
-            return {"transcription": "", "error": "No API key - audio transcription requires Azure OpenAI"}
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.transcribe_audio_live(audio_base64, mime_type, language))
+
+        # Called from within an already-running event loop (e.g. app.py's
+        # fallback path) - run the coroutine on a dedicated thread/loop instead.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, self.transcribe_audio_live(audio_base64, mime_type, language))
+            return future.result()
+
+    async def transcribe_audio_live(self, audio_base64: str, mime_type: str = "audio/webm", language: Optional[str] = None) -> Dict[str, Any]:
+        if not WHISPER_API_KEY or not WHISPER_ENDPOINT:
+            return {"transcription": "", "error": "No API key - audio transcription requires Azure OpenAI (Whisper realtime)"}
 
         try:
             audio_bytes = base64.b64decode(audio_base64)
         except Exception as e:
             return {"transcription": "", "error": f"Failed to decode audio: {e}"}
 
-        ext = mime_type.split(';')[0].split('/')[-1]
-        if ext not in ('flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm'):
-            ext = 'webm'
-        filename = f"audio.{ext}"
+        fmt = mime_type.split(';')[0].split('/')[-1] or "webm"
+        try:
+            segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format=fmt)
+            segment = segment.set_frame_rate(REALTIME_SAMPLE_RATE).set_channels(1).set_sample_width(2)
+            pcm_b64 = base64.b64encode(segment.raw_data).decode()
+        except Exception as e:
+            return {"transcription": "", "error": f"Failed to decode audio: {e}"}
+
+        session: Dict[str, Any] = {
+            "type": "transcription",
+            "audio": {
+                "input": {
+                    "format": {"type": "audio/pcm", "rate": REALTIME_SAMPLE_RATE},
+                    "transcription": {"model": WHISPER_MODEL},
+                    "turn_detection": None,
+                }
+            },
+        }
+        if language:
+            session["audio"]["input"]["transcription"]["language"] = language.split('-')[0].lower()
 
         try:
-            kwargs: Dict[str, Any] = {
-                "model": AUDIO_MODEL,
-                "file": (filename, io.BytesIO(audio_bytes), mime_type.split(';')[0]),
-                "response_format": "verbose_json",
-            }
-            if language:
-                kwargs["language"] = language.split('-')[0].lower()
+            realtime_client = AsyncOpenAI(
+                api_key=WHISPER_API_KEY,
+                base_url=WHISPER_ENDPOINT,
+                default_headers={"api-key": WHISPER_API_KEY},
+            )
+            async with realtime_client.realtime.connect(extra_query={"intent": "transcription"}) as conn:
+                await conn.session.update(session=session)
+                await conn.input_audio_buffer.append(audio=pcm_b64)
+                await conn.input_audio_buffer.commit()
 
-            transcript = self.client.audio.transcriptions.create(**kwargs)
-            detected = getattr(transcript, 'language', None) or language or 'en'
-            return {
-                "transcription": transcript.text,
-                "detected_language": detected,
-            }
+                async for event in conn:
+                    if event.type == "conversation.item.input_audio_transcription.completed":
+                        return {
+                            "transcription": event.transcript,
+                            "detected_language": language or "en",
+                        }
+                    if event.type == "conversation.item.input_audio_transcription.failed":
+                        return {"transcription": "", "error": event.error.message}
+                    if event.type == "error":
+                        return {"transcription": "", "error": event.error.message}
+
+            return {"transcription": "", "error": "Realtime session closed without a transcription result"}
         except Exception as e:
-            print(f"Azure OpenAI Error (transcribe_audio): {e}")
+            print(f"Azure OpenAI Error (transcribe_audio realtime): {e}")
             return {"transcription": "", "error": str(e)}

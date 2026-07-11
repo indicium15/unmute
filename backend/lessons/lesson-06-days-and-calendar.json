@@ -1,0 +1,10 @@
+{
+  "lesson_id": "lesson-06-days-and-calendar",
+  "lesson_name": "Days & Calendar",
+  "description": "Learn the signs for days of the week and everyday calendar words.",
+  "emoji": "📅",
+  "order": 6,
+  "difficulty": "Beginner",
+  "tags": ["Days & Calendar"],
+  "tokens": ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY", "TODAY", "TOMORROW", "YESTERDAY", "WEEK", "MONTH", "YEAR", "DATE"]
+}

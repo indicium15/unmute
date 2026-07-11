@@ -1,0 +1,10 @@
+{
+  "lesson_id": "lesson-04-family",
+  "lesson_name": "Family Members",
+  "description": "Learn the signs for family relationships.",
+  "emoji": "👨‍👩‍👧‍👦",
+  "order": 4,
+  "difficulty": "Beginner",
+  "tags": ["Family"],
+  "tokens": ["FAMILY", "MOTHER", "FATHER", "SISTER", "BROTHER", "GRANDMOTHER", "GRANDFATHER", "SON", "DAUGHTER", "HUSBAND", "WIFE", "AUNT", "UNCLE", "CHILD", "BABY"]
+}

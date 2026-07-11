@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+import random
 from urllib.parse import urlparse, quote, urljoin, unquote
 import requests
 from bs4 import BeautifulSoup
@@ -9,20 +10,25 @@ from collections import defaultdict
 from tqdm import tqdm
 from requests.adapters import HTTPAdapter, Retry
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-
 BASE_URL   = "https://blogs.ntu.edu.sg/sgslsignbank/signs/"
 OUTPUT_DIR = "../sgsl_dataset"
+
+# ——— RATE LIMITING ———
+# The site is server-rendered (no JS needed), so we talk to it with plain
+# requests instead of driving a browser. Since we now hit it far more
+# cheaply/quickly than a Selenium session would, add a small randomized
+# delay between every request so we don't hammer the server.
+REQUEST_DELAY_MIN = 0.4
+REQUEST_DELAY_MAX = 0.9
+
+def polite_sleep():
+    time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
 
 # ——— 1) REQUESTS SESSION + RETRIES ———
 session = requests.Session()
 retries = Retry(
     total=5,
-    backoff_factor=0.5,
+    backoff_factor=1.0,
     status_forcelist=[429, 500, 502, 503, 504],
     allowed_methods=["GET"]
 )
@@ -31,15 +37,13 @@ session.headers.update({
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 })
 
-# ——— 2) SELENIUM SETUP ———
-chrome_opts = Options()
-chrome_opts.add_argument("--headless")
-chrome_opts.add_argument("--disable-gpu")
-chrome_opts.add_argument("--no-sandbox")
-driver = webdriver.Chrome(options=chrome_opts)
-wait = WebDriverWait(driver, 10)
+def fetch(url, **kwargs):
+    """GET a URL, then politely wait before the next request."""
+    resp = session.get(url, timeout=15, **kwargs)
+    polite_sleep()
+    return resp
 
-# ——— 3) URL BUILDER ———
+# ——— 2) URL BUILDER ———
 def build_sign_url(raw_href):
     full = urljoin(BASE_URL, raw_href)
     parsed = urlparse(full)
@@ -49,13 +53,12 @@ def build_sign_url(raw_href):
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{key}={val_enc}"
     return full
 
-# ——— 4) SCRAPING HELPERS ———
+# ——— 3) SCRAPING HELPERS ———
 def get_sign_links():
-    driver.get(BASE_URL)
-    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.sign.btn.btn-red")))
-    soup = BeautifulSoup(driver.page_source, "html.parser")
+    resp = fetch(BASE_URL)
+    soup = BeautifulSoup(resp.text, "html.parser")
     raw_links = [a["href"] for a in soup.find_all("a", class_="sign btn btn-red")]
-    return [build_sign_url(h) for h in raw_links]
+    return [build_sign_url(h) for h in raw_links if urlparse(urljoin(BASE_URL, h)).query]
 
 def sanitize_filename(name):
     return "".join(c if c.isalnum() or c in "._-" else "_" for c in name.strip())
@@ -66,41 +69,65 @@ CATEGORY_SUFFIXES = re.compile(
     re.IGNORECASE
 )
 
-def parse_sign_label(raw_label):
+def parse_single_label(raw_label):
     """
-    Splits a raw sign label into its components.
-    Returns (clean_name, part_of_speech, base_sign, variant_suffix)
+    Splits a raw (ungrouped) sign label into its components.
+    Returns (clean_name, part_of_speech, base_sign).
+    Used for the entry-point label (e.g. "Account (Noun)") and for signs
+    that have no sibling variants on the page.
     """
     pos_match = re.search(r'\(([^)]+)\)', raw_label)
     pos = pos_match.group(1).strip() if pos_match else None
     clean_name = re.sub(r'\s*\([^)]+\)', '', raw_label).strip()
+    base_sign = CATEGORY_SUFFIXES.sub('', clean_name)
+    return clean_name, pos, base_sign
 
-    core = CATEGORY_SUFFIXES.sub('', clean_name)
-
-    sep_match = re.match(r'^(.{2,}?)[_-]+([a-e])$', core, re.IGNORECASE)
-    if sep_match:
-        base_sign = sep_match.group(1).rstrip("_-")
-        variant_suffix = sep_match.group(2).lower()
-    else:
-        base_sign = core
-        variant_suffix = None
-
-    return clean_name, pos, base_sign, variant_suffix
-
-def base_name_from_raw(raw_label: str) -> str:
-    """Derive the base folder name from a raw sign label (button value or img alt)."""
-    _, _, base_sign, _ = parse_sign_label(raw_label)
-    return sanitize_filename(base_sign).lower()
-
-def base_name_from_url(url: str):
-    """Derive the base folder name from a sign URL's query param."""
+def base_name_from_url(url):
+    """Derive the base folder name from a sign URL's query param (fallback path)."""
     parsed = urlparse(url)
     if not parsed.query:
         return None
     val = unquote(parsed.query.split("=", 1)[1])
-    return base_name_from_raw(val)
+    _, _, base_sign = parse_single_label(val)
+    return sanitize_filename(base_sign).lower()
 
-# ——— 5) VARIANT DATA EXTRACTION ———
+def group_variants(variants_raw):
+    """
+    Given the raw `value` strings of all sibling variant buttons for one
+    word (e.g. ["bigfive", "bigb"], ["activity_a", "activity_-b"]), derive
+    the shared base name and each variant's suffix.
+
+    The site does not use a consistent delimiter or suffix length between
+    the base word and its variant marker (some use "_a"/"-b", others glue
+    a full descriptive word straight on like "five"/"bent"/"ext"), so we
+    can't regex-strip a suffix from a single label in isolation. Instead we
+    use the longest common prefix across all sibling values, which is
+    reliable because every variant on a word's page shares the same root
+    word by construction.
+
+    Returns (base_name, [(suffix, raw_value), ...]) sorted primary-first.
+    """
+    values = [v.lower() for v in variants_raw]
+
+    if len(values) == 1:
+        base = CATEGORY_SUFFIXES.sub('', values[0]).rstrip('_-')
+        return sanitize_filename(base).lower(), [("", values[0])]
+
+    lcp = os.path.commonprefix(values).rstrip('_-')
+    lcp = CATEGORY_SUFFIXES.sub('', lcp)
+    base = sanitize_filename(lcp).lower()
+
+    pairs = []
+    for raw, orig in zip(values, variants_raw):
+        suffix = raw[len(lcp):].lstrip('_-')
+        if not suffix:
+            suffix = ""  # this variant *is* the base/primary form
+        pairs.append((suffix, orig))
+
+    pairs.sort(key=lambda x: x[0])  # "" (primary) sorts before "a", "b", "five", ...
+    return base, pairs
+
+# ——— 4) VARIANT DATA EXTRACTION ———
 def _extract_variant_data(soup):
     """
     Extract all content from a variant section soup.
@@ -159,8 +186,8 @@ def _extract_variant_data(soup):
 
     return data
 
-# ——— 6) SIGN SCRAPE (ALL VARIANTS INTO ONE FOLDER) ———
-def scrape_sign(page_soup, base_name: str, variants_raw: list):
+# ——— 5) SIGN SCRAPE (ALL VARIANTS INTO ONE FOLDER) ———
+def scrape_sign(page_soup, base_name: str, variant_pairs: list, entry_pos: str):
     """
     Scrape all variants of a sign into a single folder named base_name.
 
@@ -174,18 +201,9 @@ def scrape_sign(page_soup, base_name: str, variants_raw: list):
     folder = os.path.join(OUTPUT_DIR, base_name)
     os.makedirs(folder, exist_ok=True)
 
-    # Parse each raw variant value and sort: no-suffix (primary) first, then a, b, c…
-    parsed_variants = []
-    for raw in variants_raw:
-        _, pos, _, variant_suffix = parse_sign_label(raw)
-        parsed_variants.append((variant_suffix or "", raw, pos))
-    parsed_variants.sort(key=lambda x: x[0])  # "" < "a" < "b" < ...
-
-    primary_pos = parsed_variants[0][2] if parsed_variants else None
-
     top_level_meta = {
         "base_sign": base_name,
-        "part_of_speech": primary_pos,
+        "part_of_speech": entry_pos,
         "description": None,
         "visual_guide": None,
         "translation_equivalents": None,
@@ -193,7 +211,7 @@ def scrape_sign(page_soup, base_name: str, variants_raw: list):
         "variants": [],
     }
 
-    for idx, (suffix, raw_var, _pos) in enumerate(parsed_variants):
+    for idx, (suffix, raw_var) in enumerate(variant_pairs):
         is_primary = (idx == 0)
         units_folder_name = "primary" if is_primary else suffix
         gif_filename = "primary.gif" if is_primary else f"variant_{suffix}.gif"
@@ -206,7 +224,7 @@ def scrape_sign(page_soup, base_name: str, variants_raw: list):
         # Download GIF
         if vdata["gif_url"]:
             try:
-                gif_bytes = session.get(vdata["gif_url"], timeout=10).content
+                gif_bytes = fetch(vdata["gif_url"]).content
                 with open(os.path.join(folder, gif_filename), "wb") as f:
                     f.write(gif_bytes)
             except Exception as e:
@@ -221,7 +239,7 @@ def scrape_sign(page_soup, base_name: str, variants_raw: list):
                 ext = os.path.splitext(urlparse(img_src).path)[1] or ".png"
                 fname = f"{unit_idx}{ext}"
                 try:
-                    img_data = session.get(img_src, timeout=10).content
+                    img_data = fetch(img_src).content
                     with open(os.path.join(units_subfolder, fname), "wb") as f:
                         f.write(img_data)
                 except Exception as e:
@@ -248,9 +266,7 @@ def scrape_sign(page_soup, base_name: str, variants_raw: list):
     with open(os.path.join(folder, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump(top_level_meta, f, ensure_ascii=False, indent=2)
 
-    time.sleep(0.5)
-
-# ——— 7) MAIN LOOP ———
+# ——— 6) MAIN LOOP ———
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Scrape SgSL sign bank")
@@ -283,24 +299,33 @@ def main():
 
     for url in tqdm(pending_links, desc="Downloading signs"):
         try:
-            driver.get(url)
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.row[id]")))
-            page_soup = BeautifulSoup(driver.page_source, "html.parser")
+            resp = fetch(url)
+            page_soup = BeautifulSoup(resp.text, "html.parser")
+
+            parsed = urlparse(url)
+            entry_raw_label = unquote(parsed.query.split("=", 1)[1])
+            _, entry_pos, _ = parse_single_label(entry_raw_label)
 
             group = page_soup.find("div", class_="btn-group-vertical")
             if group:
-                variants_raw = [inp.get("value") for inp in group.find_all("input", class_="btn-check") if inp.get("value")]
+                # Button `value` attributes can contain literal percent-encoded
+                # text for special characters (e.g. "april-fools%e2%80%99-day"),
+                # so unquote them before using them as sign labels.
+                variants_raw = [unquote(inp.get("value")) for inp in group.find_all("input", class_="btn-check") if inp.get("value")]
             else:
-                parsed = urlparse(url)
-                variants_raw = [unquote(parsed.query.split("=", 1)[1])]
+                variants_raw = [entry_raw_label]
 
-            base_name = base_name_from_raw(variants_raw[0]) if variants_raw else base_name_from_url(url)
+            if not variants_raw:
+                print(f"[!] No variants found for {url}")
+                continue
+
+            base_name, variant_pairs = group_variants(variants_raw)
             if not base_name:
                 print(f"[!] Could not determine base name for {url}")
                 continue
 
             try:
-                scrape_sign(page_soup, base_name, variants_raw)
+                scrape_sign(page_soup, base_name, variant_pairs, entry_pos)
                 total_downloaded += 1
             except Exception as ve:
                 failed_downloads[url].append(base_name)
@@ -318,7 +343,6 @@ def main():
         print("Failed details:")
         for u, vs in failed_downloads.items():
             print(f" - {u} → {vs}")
-    driver.quit()
 
 
 if __name__ == "__main__":

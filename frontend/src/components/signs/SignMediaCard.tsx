@@ -90,9 +90,9 @@ export function SignMediaCard({
       <div className="p-6">
         <h2 className="text-[22px] font-bold text-[#101828] mb-3">{label}</h2>
 
-        {sign.tags.length > 0 && (
+        {(sign.tags ?? []).length > 0 && (
           <div className="flex items-center gap-2 flex-wrap mb-4">
-            {sign.tags.map((tag) => {
+            {(sign.tags ?? []).map((tag) => {
               const style = getTagStyle(tag)
               return (
                 <span

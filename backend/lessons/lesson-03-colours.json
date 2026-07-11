@@ -1,0 +1,10 @@
+{
+  "lesson_id": "lesson-03-colours",
+  "lesson_name": "Colours",
+  "description": "Learn the signs for common colours.",
+  "emoji": "🎨",
+  "order": 3,
+  "difficulty": "Beginner",
+  "tags": ["Colours"],
+  "tokens": ["RED", "BLUE", "GREEN", "YELLOW", "WHITE", "BLACK", "BROWN", "GREY", "ORANGE", "PURPLE"]
+}

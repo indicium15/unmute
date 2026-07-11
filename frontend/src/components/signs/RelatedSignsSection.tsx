@@ -32,7 +32,7 @@ export function RelatedSignsSection({
               {formatSignLabel(s.token)}
             </p>
             <div className="flex items-center gap-1.5 flex-wrap">
-              {s.tags.map((tag) => {
+              {(s.tags ?? []).map((tag) => {
                 const style = getTagStyle(tag)
                 return (
                   <span

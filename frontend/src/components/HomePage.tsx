@@ -1,6 +1,5 @@
 import { useState } from "react"
-// TODO: re-enable once we have access to a working transcription model on Azure OpenAI.
-// import { useVoiceRecording } from "@/hooks/useVoiceRecording"
+import { useVoiceRecording } from "@/hooks/useVoiceRecording"
 import type { TranslationResult } from "@/hooks/useTranslation"
 import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 import { Footer } from "@/components/Footer"
@@ -22,14 +21,13 @@ const SUGGESTED_PHRASES = [
   "I am hungry, want to go for supper tonight?",
 ]
 
-export function HomePage({ onNavigate, onTranslate, onLogout, isAdmin, isLoggedIn = true }: HomePageProps) {
+export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isAdmin, isLoggedIn = true }: HomePageProps) {
   const [inputText, setInputText] = useState("")
 
-  // TODO: re-enable once we have access to a working transcription model on Azure OpenAI.
-  // const { isRecording, isProcessing, toggleRecording } = useVoiceRecording({
-  //   onTranscription: (text) => setInputText(text),
-  //   onResult: (result) => onVoiceResult?.(result),
-  // })
+  const { isRecording, isProcessing, toggleRecording } = useVoiceRecording({
+    onTranscription: (text) => setInputText(text),
+    onResult: (result) => onVoiceResult?.(result),
+  })
 
   const handleTranslate = () => {
     const text = inputText.trim()
@@ -89,7 +87,6 @@ export function HomePage({ onNavigate, onTranslate, onLogout, isAdmin, isLoggedI
               className="flex-1 text-[16px] text-[#6a7282] placeholder:text-[#99a1af] outline-none bg-transparent min-w-0"
             />
             <div className="pr-2 flex-shrink-0 flex items-center gap-1">
-              {/* TODO: re-enable voice input once we have access to a working transcription model on Azure OpenAI.
               <button
                 onClick={toggleRecording}
                 title={isRecording ? "Stop recording" : "Record voice"}
@@ -115,7 +112,6 @@ export function HomePage({ onNavigate, onTranslate, onLogout, isAdmin, isLoggedI
                   </svg>
                 )}
               </button>
-              */}
               <button
                 onClick={handleTranslate}
                 className="px-5 h-10 rounded-[14px] bg-[#6176f7] text-white text-[14px] font-medium opacity-40 hover:opacity-100 transition-opacity"

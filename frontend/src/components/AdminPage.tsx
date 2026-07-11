@@ -63,7 +63,8 @@ function formatTimestamp(ts: string): string {
   }
 }
 
-function truncate(s: string, n = 60): string {
+function truncate(s: string | null | undefined, n = 60): string {
+  if (!s) return ""
   return s.length > n ? s.slice(0, n) + "…" : s
 }
 
@@ -100,7 +101,7 @@ function TranslationRow({ log }: { log: TranslationLog }) {
         </td>
         <td className="py-3 px-4 text-xs text-text-muted">{log.detected_language ?? "—"}</td>
         <td className="py-3 px-4 text-xs text-text-secondary">
-          {log.gemini_gloss.length} tokens
+          {(log.gemini_gloss ?? []).length} tokens
         </td>
         <td className="py-3 px-4 text-xs text-text-secondary">
           {log.render_plan_count} signs
@@ -122,12 +123,12 @@ function TranslationRow({ log }: { log: TranslationLog }) {
               <Field label="User ID" value={log.user_id} mono />
               <Field
                 label="Gemini Gloss"
-                value={log.gemini_gloss.join(", ") || "—"}
+                value={(log.gemini_gloss ?? []).join(", ") || "—"}
               />
-              {log.gemini_unmatched.length > 0 && (
+              {(log.gemini_unmatched ?? []).length > 0 && (
                 <Field
                   label="Unmatched Tokens"
-                  value={log.gemini_unmatched.join(", ")}
+                  value={(log.gemini_unmatched ?? []).join(", ")}
                   accent
                 />
               )}
@@ -138,11 +139,11 @@ function TranslationRow({ log }: { log: TranslationLog }) {
               )}
               <Field
                 label="Output Tokens"
-                value={log.output_tokens.join(", ") || "—"}
+                value={(log.output_tokens ?? []).join(", ") || "—"}
               />
               <Field
                 label="Output Sign Names"
-                value={log.output_sign_names.join(", ") || "—"}
+                value={(log.output_sign_names ?? []).join(", ") || "—"}
               />
             </div>
           </td>

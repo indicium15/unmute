@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
-import { AlertCircle, ArrowLeft, ChevronLeft, ChevronRight, Loader2, Pause, Play, Search, Timer } from "lucide-react"
+import { AlertCircle, ArrowLeft, ChevronLeft, ChevronRight, Loader2, Mic, Pause, Play, Search, Square, Timer } from "lucide-react"
 import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 import { Footer } from "@/components/Footer"
 import { FeedbackWidget } from "@/components/FeedbackWidget"
@@ -8,8 +8,7 @@ import { SignParametersTable } from "@/components/signs/SignParametersTable"
 import { SignUnitsStrip } from "@/components/signs/SignUnitsStrip"
 import { RelatedSignsSection } from "@/components/signs/RelatedSignsSection"
 import { formatSignLabel } from "@/components/signs/types"
-// TODO: re-enable once we have access to a working transcription model on Azure OpenAI.
-// import { useVoiceRecording } from "@/hooks/useVoiceRecording"
+import { useVoiceRecording } from "@/hooks/useVoiceRecording"
 import { useSignCatalog } from "@/hooks/useSignCatalog"
 import { useSignDetail } from "@/hooks/useSignDetail"
 import type { TranslationResult } from "@/hooks/useTranslation"
@@ -51,6 +50,7 @@ export function TranslatePage({
   error,
   retryAfter,
   onTranslate,
+  onVoiceResult,
   initialText,
   onInitialTextConsumed,
   onViewSignInDictionary,
@@ -81,16 +81,16 @@ export function TranslatePage({
     setAutoplay(true)
   }, [result])
 
-  // TODO: re-enable once we have access to a working transcription model on Azure OpenAI.
-  // const {
-  //   isRecording,
-  //   isProcessing,
-  //   error: voiceError,
-  //   retryAfter: voiceRetryAfter,
-  //   toggleRecording,
-  // } = useVoiceRecording({ onResult: onVoiceResult })
+  const {
+    isRecording,
+    isProcessing,
+    error: voiceError,
+    retryAfter: voiceRetryAfter,
+    toggleRecording,
+  } = useVoiceRecording({ onResult: onVoiceResult })
 
-  const activeRetryAfter = retryAfter ?? null
+  const activeRetryAfter = retryAfter ?? voiceRetryAfter ?? null
+  const activeError = error ?? voiceError ?? null
 
   useEffect(() => {
     if (!activeRetryAfter) {
@@ -188,7 +188,6 @@ export function TranslatePage({
               disabled={isLoading}
               className="flex-1 h-10 px-1 text-[15px] text-[#1e2939] placeholder:text-[#99a1af] outline-none bg-transparent disabled:opacity-60"
             />
-            {/* TODO: re-enable voice input once we have access to a working transcription model on Azure OpenAI.
             <button
               type="button"
               onClick={toggleRecording}
@@ -202,7 +201,6 @@ export function TranslatePage({
             >
               {isRecording ? <Square className="h-4 w-4 fill-current" /> : <Mic className="h-4 w-4" />}
             </button>
-            */}
             <button
               onClick={handleTranslateClick}
               disabled={isLoading || !inputText.trim() || isRateLimited}
@@ -227,10 +225,10 @@ export function TranslatePage({
                 <span className="font-semibold tabular-nums">{formatCountdown(countdown!)}</span>
               </span>
             </div>
-          ) : error ? (
+          ) : activeError ? (
             <div className="flex gap-2 rounded-[12px] bg-white/10 px-3 py-2.5 mt-3 text-sm text-white">
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-              <span>{error}</span>
+              <span>{activeError}</span>
             </div>
           ) : null}
         </div>
@@ -319,12 +317,14 @@ export function TranslatePage({
           <>
             <SignMediaCard
               sign={
-                activeSignDetail ?? {
-                  token: activeSignItem.token,
-                  sign_name: activeSignItem.sign_name ?? "",
-                  gif_url: activeSignItem.assets?.gif ?? "",
-                  tags: activeTags,
-                }
+                activeSignDetail
+                  ? { ...activeSignDetail, tags: activeTags }
+                  : {
+                      token: activeSignItem.token,
+                      sign_name: activeSignItem.sign_name ?? "",
+                      gif_url: activeSignItem.assets?.gif ?? "",
+                      tags: activeTags,
+                    }
               }
               showRelatedInline={false}
               loading={activeSignLoading}

@@ -1516,6 +1516,7 @@ dependencies = [
     { name = "slowapi" },
     { name = "tqdm" },
     { name = "uvicorn" },
+    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -1527,7 +1528,7 @@ requires-dist = [
     { name = "google-genai", specifier = "==1.57.0" },
     { name = "mediapipe", specifier = "==0.10.21" },
     { name = "numpy", specifier = "==1.26.4" },
-    { name = "openai", specifier = ">=1.30.0" },
+    { name = "openai", specifier = ">=1.99.0" },
     { name = "opencv-contrib-python", specifier = "==4.11.0.86" },
     { name = "opencv-python", specifier = "==4.11.0.86" },
     { name = "pillow", specifier = "==11.2.1" },
@@ -1540,6 +1541,7 @@ requires-dist = [
     { name = "slowapi", specifier = ">=0.1.9" },
     { name = "tqdm", specifier = ">=4.67.3" },
     { name = "uvicorn", specifier = "==0.40.0" },
+    { name = "websockets", specifier = ">=13.0" },
 ]
 
 [[package]]
