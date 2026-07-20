@@ -60,7 +60,7 @@ function App() {
 
   // When user signs out, always redirect to home from protected pages.
   useEffect(() => {
-    if (!loading && !user && (mode === "translate" || mode === "admin" || mode === "learn" || mode === "dictionary")) {
+    if (!loading && !user && (mode === "admin" || mode === "learn")) {
       window.history.replaceState(null, "", "/home")
       setModeState("home")
     }
@@ -114,8 +114,9 @@ function App() {
   }, [])
 
   const setMode = (nextMode: AppMode) => {
-    // Redirect unauthenticated users to login for protected pages
-    if ((nextMode === "translate" || nextMode === "admin" || nextMode === "learn") && !user) {
+    // Redirect unauthenticated users to login for protected pages (only the
+    // lessons page and admin require login; translate/dictionary are open)
+    if ((nextMode === "admin" || nextMode === "learn") && !user) {
       const nextPath = "/login"
       if (window.location.pathname !== nextPath) {
         window.history.pushState(null, "", nextPath)
@@ -164,12 +165,15 @@ function App() {
     return <LoginPage />
   }
 
-  // Translate, Admin, Dictionary, and Learn all require login
-  if (!user) {
+  // Only the lessons ("learn") page and Admin require login; Translate and
+  // Dictionary are accessible without an account.
+  const requiresAuth = effectiveMode === "learn" || effectiveMode === "admin"
+
+  if (requiresAuth && !user) {
     return <LoginPage />
   }
 
-  if (!isAdmin && approvalStatus === "pending") {
+  if (requiresAuth && !isAdmin && approvalStatus === "pending") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white px-4">
         <div className="max-w-sm w-full text-center">
@@ -193,7 +197,7 @@ function App() {
     )
   }
 
-  if (!isAdmin && approvalStatus === "revoked") {
+  if (requiresAuth && !isAdmin && approvalStatus === "revoked") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white px-4">
         <div className="max-w-sm w-full text-center">

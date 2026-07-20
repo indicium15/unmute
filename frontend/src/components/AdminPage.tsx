@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, ThumbsUp, ThumbsDown, Users, FileText, ShieldCheck, BarChart2 } from "lucide-react"
+import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, ThumbsUp, ThumbsDown, Users, FileText, ShieldCheck, BarChart2, Coins } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,13 +14,15 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
 }
 
-type AdminTab = "dashboard" | "users" | "admins" | "logs"
+type AdminTab = "dashboard" | "usage" | "users" | "admins" | "logs"
 type LogTab = "translation" | "transcription" | "feedback"
 
 interface TranslationLog {
   id: string
-  user_id: string
-  user_email: string | null
+  // Historical records only - translation_logs no longer stores who made the
+  // request (the translate page doesn't require login).
+  user_id?: string
+  user_email?: string | null
   timestamp: string
   query_type: "text" | "voice"
   input_text: string
@@ -35,8 +37,10 @@ interface TranslationLog {
 
 interface TranscriptionLog {
   id: string
-  user_id: string
-  user_email: string | null
+  // Historical records only - transcription_logs no longer stores who made
+  // the request (the translate page doesn't require login).
+  user_id?: string
+  user_email?: string | null
   timestamp: string
   transcription: string
   detected_language: string | null
@@ -44,8 +48,10 @@ interface TranscriptionLog {
 
 interface FeedbackLog {
   id: string
-  user_id: string
-  user_email: string | null
+  // Optional - feedback can now be submitted anonymously since the translate
+  // page is accessible without login.
+  user_id?: string
+  user_email?: string | null
   timestamp: string
   rating: "positive" | "negative"
   translation_log_id: string | null
@@ -120,7 +126,7 @@ function TranslationRow({ log }: { log: TranslationLog }) {
           <td colSpan={8} className="px-6 py-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
               <Field label="Full Input" value={log.input_text} />
-              <Field label="User ID" value={log.user_id} mono />
+              {log.user_id && <Field label="User ID" value={log.user_id} mono />}
               <Field
                 label="Gemini Gloss"
                 value={(log.gemini_gloss ?? []).join(", ") || "—"}
@@ -190,7 +196,7 @@ function TranscriptionRow({ log }: { log: TranscriptionLog }) {
           <td colSpan={5} className="px-6 py-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
               <Field label="Full Transcription" value={log.transcription} />
-              <Field label="User ID" value={log.user_id} mono />
+              {log.user_id && <Field label="User ID" value={log.user_id} mono />}
             </div>
           </td>
         </tr>
@@ -247,7 +253,7 @@ function FeedbackRow({ log }: { log: FeedbackLog }) {
           <td colSpan={6} className="px-6 py-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
               {log.comment && <Field label="Full Comment" value={log.comment} />}
-              <Field label="User ID" value={log.user_id} mono />
+              {log.user_id && <Field label="User ID" value={log.user_id} mono />}
               {log.translation_log_id && (
                 <Field label="Translation Log ID" value={log.translation_log_id} mono />
               )}
@@ -441,6 +447,208 @@ function DashboardPanel() {
               <p className="text-text-muted text-sm text-center py-8">No query data yet</p>
             )}
           </Card>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+// ── Token usage panel ───────────────────────────────────────────────────────
+// We don't have direct access to the Azure OpenAI usage/billing dashboard, so
+// this approximates token spend from usage figures the API returns inline on
+// each translate/transcribe request.
+
+interface UsageDay {
+  date: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+}
+
+interface TokenUsageStats {
+  total_input_tokens: number
+  total_output_tokens: number
+  total_tokens: number
+  by_endpoint: Record<string, { input_tokens: number; output_tokens: number; total_tokens: number }>
+  usage_by_day: UsageDay[]
+}
+
+function UsageBarChart({ data }: { data: UsageDay[] }) {
+  const maxCount = Math.max(...data.map((d) => d.total_tokens), 1)
+  const chartH = 120
+  const barW = 100 / data.length
+  const labelIndices = [0, 7, 14, 21, 29]
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 100 ${chartH}`}
+        preserveAspectRatio="none"
+        className="w-full"
+        style={{ height: chartH }}
+      >
+        {data.map((d, i) => {
+          const barH = (d.total_tokens / maxCount) * chartH * 0.88
+          const x = i * barW + barW * 0.12
+          const w = barW * 0.76
+          return (
+            <rect
+              key={d.date}
+              x={x}
+              y={chartH - barH}
+              width={w}
+              height={Math.max(barH, 0)}
+              rx="0.8"
+              fill="var(--color-accent-terracotta)"
+              opacity={0.72}
+            />
+          )
+        })}
+      </svg>
+      <div className="relative w-full mt-2" style={{ height: 18 }}>
+        {labelIndices.map((i) => {
+          if (!data[i]) return null
+          const label = new Date(data[i].date + "T00:00:00").toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          })
+          return (
+            <span
+              key={i}
+              className="absolute text-[10px] text-text-muted -translate-x-1/2"
+              style={{ left: `${((i + 0.5) / data.length) * 100}%` }}
+            >
+              {label}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function UsagePanel() {
+  const [stats, setStats] = useState<TokenUsageStats | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchStats = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API_BASE_URL}/api/admin/token-usage`, { headers })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { detail?: string }).detail ?? `HTTP ${res.status}`)
+      }
+      setStats(await res.json())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to fetch token usage")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchStats()
+  }, [fetchStats])
+
+  return (
+    <div>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h2 className="font-serif text-3xl font-semibold text-text-primary">Token Usage</h2>
+          <p className="text-sm text-text-muted mt-1">
+            Approximate LLM token spend (translate + transcribe) — we don't have direct access to the
+            Azure usage dashboard, so this is tracked from per-request usage figures.
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={fetchStats}
+          disabled={isLoading}
+          className="text-text-muted hover:text-text-secondary px-3 py-2 rounded-[14px] mt-1"
+          title="Refresh"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="p-16 text-center">
+          <p className="text-text-muted text-sm">Loading…</p>
+        </div>
+      ) : error ? (
+        <div className="p-16 text-center">
+          <p className="text-red-500 text-sm">{error}</p>
+        </div>
+      ) : stats ? (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            {[
+              { label: "Input Tokens (30d)", value: stats.total_input_tokens },
+              { label: "Output Tokens (30d)", value: stats.total_output_tokens },
+              { label: "Total Tokens (30d)", value: stats.total_tokens },
+            ].map(({ label, value }) => (
+              <Card
+                key={label}
+                className="border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-5"
+                style={{ boxShadow: "var(--shadow-soft)" }}
+              >
+                <p className="text-xs uppercase tracking-widest text-text-muted mb-2">{label}</p>
+                <p className="font-serif text-4xl font-semibold text-text-primary">
+                  {value.toLocaleString()}
+                </p>
+              </Card>
+            ))}
+          </div>
+
+          <Card
+            className="border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-6 mb-8"
+            style={{ boxShadow: "var(--shadow-soft)" }}
+          >
+            <p className="text-sm font-medium text-text-secondary mb-5">
+              Tokens per day — last 30 days
+            </p>
+            {stats.usage_by_day.some((d) => d.total_tokens > 0) ? (
+              <UsageBarChart data={stats.usage_by_day} />
+            ) : (
+              <p className="text-text-muted text-sm text-center py-8">No usage data yet</p>
+            )}
+          </Card>
+
+          {Object.keys(stats.by_endpoint).length > 0 && (
+            <Card
+              className="overflow-hidden border border-[var(--color-border-soft)] rounded-[var(--radius-card)] p-0"
+              style={{ boxShadow: "var(--shadow-soft)" }}
+            >
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-[var(--color-border-soft)]">
+                    {["Endpoint", "Input Tokens", "Output Tokens", "Total Tokens"].map((h) => (
+                      <th
+                        key={h}
+                        className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(stats.by_endpoint).map(([endpoint, usage]) => (
+                    <tr key={endpoint} className="border-b border-[var(--color-border-soft)]">
+                      <td className="py-3 px-4 text-sm text-text-primary capitalize">{endpoint}</td>
+                      <td className="py-3 px-4 text-sm text-text-secondary">{usage.input_tokens.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-sm text-text-secondary">{usage.output_tokens.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-sm text-text-secondary">{usage.total_tokens.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
         </>
       ) : null}
     </div>
@@ -925,6 +1133,7 @@ export function AdminPage() {
 
   const TOP_TABS: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "Dashboard", icon: <BarChart2 className="w-4 h-4" /> },
+    { id: "usage", label: "Token Usage", icon: <Coins className="w-4 h-4" /> },
     { id: "users", label: "Users", icon: <Users className="w-4 h-4" /> },
     { id: "admins", label: "Admin Access", icon: <ShieldCheck className="w-4 h-4" /> },
     { id: "logs", label: "Activity Logs", icon: <FileText className="w-4 h-4" /> },
@@ -951,6 +1160,7 @@ export function AdminPage() {
       </div>
 
       {adminTab === "dashboard" && <DashboardPanel />}
+      {adminTab === "usage" && <UsagePanel />}
       {adminTab === "users" && <UsersPanel />}
       {adminTab === "admins" && <AdminsPanel />}
 

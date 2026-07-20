@@ -92,8 +92,8 @@ export function LessonDetailPage({
             <ArrowLeft className="h-4 w-4" />
             Back
           </button>
-          <h1 className="text-[30px] font-bold leading-9 text-white">{lesson.lesson_name}</h1>
-          <div className="mt-4 flex items-center gap-3">
+          <h1 className="text-center text-[30px] font-bold leading-9 text-white">{lesson.lesson_name}</h1>
+          <div className="mt-4 flex items-center justify-center gap-3">
             <div className="h-2 max-w-[400px] flex-1 overflow-hidden rounded-full bg-white/30">
               <div
                 className="h-full rounded-full bg-white transition-all"
@@ -176,9 +176,6 @@ export function LessonDetailPage({
             <p className="mb-3 text-[13px] font-semibold text-[#101828]">Sign Details</p>
             <div className="relative flex h-[280px] items-center justify-center overflow-hidden rounded-[14px] bg-[#f8f9ff]">
               <img key={activeGif} src={activeGif} alt={`Sign for ${label}`} className="h-full w-full object-contain" />
-              <span className="absolute bottom-3 right-3 rounded-full bg-black/40 px-2 py-0.5 text-[11px] text-white">
-                Signing animation
-              </span>
             </div>
 
             {sign.description && (

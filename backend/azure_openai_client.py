@@ -4,8 +4,9 @@ import base64
 import io
 from typing import List, Dict, Any, Optional
 
+from websockets.asyncio.client import connect as ws_connect
 from dotenv import load_dotenv
-from openai import AzureOpenAI, AsyncOpenAI
+from openai import AzureOpenAI
 from pydub import AudioSegment
 
 from llm_client import LLMClient
@@ -18,9 +19,12 @@ TEXT_MODEL = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-5.4-mini")
 # Audio transcription runs on a separate Azure resource that hosts the realtime
 # transcription models (gpt-realtime-whisper is only reachable via the realtime
 # websocket API, not the batch /audio/transcriptions REST endpoint).
-WHISPER_MODEL = os.environ.get("AZURE_WHISPER_DEPLOYMENT", "gpt-realtime-whisper")
-WHISPER_ENDPOINT = os.environ.get("AZURE_WHISPER_ENDPOINT")
-WHISPER_API_KEY = os.environ.get("AZURE_WHISPER_OPENAI_API_KEY")
+# .strip() guards against trailing newlines in values injected from Secret
+# Manager - a stray "\n" in the api-key header makes Azure drop the websocket
+# right after the handshake with no close frame.
+WHISPER_MODEL = os.environ.get("AZURE_WHISPER_DEPLOYMENT", "gpt-realtime-whisper").strip()
+WHISPER_ENDPOINT = (os.environ.get("AZURE_WHISPER_ENDPOINT") or "").strip() or None
+WHISPER_API_KEY = (os.environ.get("AZURE_WHISPER_OPENAI_API_KEY") or "").strip() or None
 REALTIME_SAMPLE_RATE = 24000
 
 
@@ -92,7 +96,16 @@ Output JSON format strictly (no markdown, no code blocks):
                 text={"format": {"type": "json_object"}},
             )
             data = json.loads(response.output_text)
-            return self.validate_gloss(data)
+            result = self.validate_gloss(data)
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                result["usage"] = {
+                    "model": TEXT_MODEL,
+                    "input_tokens": getattr(usage, "input_tokens", None),
+                    "output_tokens": getattr(usage, "output_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                }
+            return result
         except Exception as e:
             print(f"Azure OpenAI Error (text_to_gloss): {e}")
             return {"gloss": [], "unmatched": [], "error": str(e)}
@@ -128,42 +141,91 @@ Output JSON format strictly (no markdown, no code blocks):
         except Exception as e:
             return {"transcription": "", "error": f"Failed to decode audio: {e}"}
 
-        session: Dict[str, Any] = {
-            "type": "transcription",
-            "audio": {
-                "input": {
-                    "format": {"type": "audio/pcm", "rate": REALTIME_SAMPLE_RATE},
-                    "transcription": {"model": WHISPER_MODEL},
-                    "turn_detection": None,
-                }
+        transcription_config: Dict[str, Any] = {"model": WHISPER_MODEL}
+        if language:
+            transcription_config["language"] = language.split('-')[0].lower()
+
+        session_update = {
+            "type": "session.update",
+            "session": {
+                "type": "transcription",
+                "audio": {
+                    "input": {
+                        "format": {"type": "audio/pcm", "rate": REALTIME_SAMPLE_RATE},
+                        "turn_detection": None,
+                        "transcription": transcription_config,
+                    },
+                },
             },
         }
-        if language:
-            session["audio"]["input"]["transcription"]["language"] = language.split('-')[0].lower()
 
+        url = f"{WHISPER_ENDPOINT.rstrip('/')}/realtime?intent=transcription".replace("https://", "wss://", 1)
+        headers = {"api-key": WHISPER_API_KEY}
+
+        result: Optional[Dict[str, Any]] = None
+        stage = "connect"
         try:
-            realtime_client = AsyncOpenAI(
-                api_key=WHISPER_API_KEY,
-                base_url=WHISPER_ENDPOINT,
-                default_headers={"api-key": WHISPER_API_KEY},
-            )
-            async with realtime_client.realtime.connect(extra_query={"intent": "transcription"}) as conn:
-                await conn.session.update(session=session)
-                await conn.input_audio_buffer.append(audio=pcm_b64)
-                await conn.input_audio_buffer.commit()
+            async with ws_connect(url, additional_headers=headers) as ws:
+                stage = "session.update"
+                await ws.send(json.dumps(session_update))
+                async for raw_message in ws:
+                    event = json.loads(raw_message)
+                    if event.get("type") == "session.updated":
+                        break
+                    if event.get("type") == "error":
+                        result = {"transcription": "", "error": event.get("error", {}).get("message", str(event))}
+                        break
 
-                async for event in conn:
-                    if event.type == "conversation.item.input_audio_transcription.completed":
-                        return {
-                            "transcription": event.transcript,
-                            "detected_language": language or "en",
-                        }
-                    if event.type == "conversation.item.input_audio_transcription.failed":
-                        return {"transcription": "", "error": event.error.message}
-                    if event.type == "error":
-                        return {"transcription": "", "error": event.error.message}
+                if result is None:
+                    stage = "input_audio_buffer.append"
+                    await ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": pcm_b64}))
+                    stage = "input_audio_buffer.commit"
+                    await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
 
-            return {"transcription": "", "error": "Realtime session closed without a transcription result"}
+                    stage = "waiting for events"
+                    async for raw_message in ws:
+                        event = json.loads(raw_message)
+                        if event.get("type") == "conversation.item.input_audio_transcription.completed":
+                            result = {
+                                "transcription": event.get("transcript", ""),
+                                "detected_language": language or "en",
+                            }
+                            raw_usage = event.get("usage")
+                            if raw_usage:
+                                result["usage"] = {
+                                    "model": WHISPER_MODEL,
+                                    "input_tokens": raw_usage.get("input_tokens"),
+                                    "output_tokens": raw_usage.get("output_tokens"),
+                                    "total_tokens": raw_usage.get("total_tokens"),
+                                }
+                            break
+                        if event.get("type") == "conversation.item.input_audio_transcription.failed":
+                            result = {"transcription": "", "error": event.get("error", {}).get("message", "Transcription failed")}
+                            break
+                        if event.get("type") == "error":
+                            result = {"transcription": "", "error": event.get("error", {}).get("message", str(event))}
+                            break
+                stage = "closing connection"
+                # Azure tears down the realtime socket right after emitting the
+                # terminal event instead of completing a clean close handshake,
+                # so exiting this block can raise ConnectionClosedError even
+                # though we already have our answer - that's handled below.
         except Exception as e:
-            print(f"Azure OpenAI Error (transcribe_audio realtime): {e}")
-            return {"transcription": "", "error": str(e)}
+            if result is not None:
+                # We already got a transcript/failure event; the exception only
+                # happened while tearing down the websocket, so ignore it.
+                pass
+            else:
+                print(f"Azure OpenAI Error (transcribe_audio realtime) at stage '{stage}': {type(e).__name__}: {e}")
+                response = getattr(e, "response", None)
+                if response is not None:
+                    try:
+                        print(f"Azure realtime handshake response headers: {dict(response.headers)}")
+                        print(f"Azure realtime handshake response body: {response.body}")
+                    except Exception as log_err:
+                        print(f"Failed to log handshake response detail: {log_err}")
+                return {"transcription": "", "error": str(e)}
+
+        if result is not None:
+            return result
+        return {"transcription": "", "error": "Realtime session closed without a transcription result"}

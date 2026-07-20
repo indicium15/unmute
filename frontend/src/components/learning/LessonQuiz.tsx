@@ -111,8 +111,8 @@ export function LessonQuiz({ lesson, onComplete, onBack, onNavigate, onSignOut, 
             <ArrowLeft className="h-4 w-4" />
             Back
           </button>
-          <h1 className="text-[30px] font-bold leading-9 text-white">{lesson.lesson_name}</h1>
-          <div className="mt-4 flex items-center gap-3">
+          <h1 className="text-center text-[30px] font-bold leading-9 text-white">{lesson.lesson_name}</h1>
+          <div className="mt-4 flex items-center justify-center gap-3">
             <div className="h-2 max-w-[400px] flex-1 overflow-hidden rounded-full bg-white/30">
               <div
                 className="h-full rounded-full bg-white transition-all"
@@ -132,9 +132,6 @@ export function LessonQuiz({ lesson, onComplete, onBack, onNavigate, onSignOut, 
 
         <div className="relative flex h-[280px] items-center justify-center overflow-hidden rounded-[14px] border border-[#e5e7eb] bg-[#f8f9ff] sm:h-[320px]">
           <img key={currentSign.gif_url} src={currentSign.gif_url} alt={`Sign for ${currentSign.token}`} className="h-full w-full object-contain" />
-          <span className="absolute bottom-3 right-3 rounded-full bg-black/40 px-2 py-0.5 text-[11px] text-white">
-            Signing animation
-          </span>
         </div>
 
         <div className="mt-5 flex flex-col gap-2.5">

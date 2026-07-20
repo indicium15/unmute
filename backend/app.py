@@ -180,7 +180,7 @@ def health():
 
 @app.post("/api/translate", response_model=TranslateResponse)
 @limiter.limit("5/minute;30/hour")
-def translate(request: Request, req: GlossRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_approved_token)):
+def translate(request: Request, req: GlossRequest, background_tasks: BackgroundTasks, _user: Optional[dict] = Depends(optional_approved_token)):
     # 1. Text to Gloss (Gemini) with language support
     print(f"Translating: {req.text} (language: {req.language or 'auto-detect'})")
     gloss_result = gemini.text_to_gloss(req.text, language=req.language)
@@ -205,14 +205,20 @@ def translate(request: Request, req: GlossRequest, background_tasks: BackgroundT
 
     background_tasks.add_task(
         database.log_translation,
-        user_id=user.get("uid"),
-        user_email=user.get("email"),
         query_type="text",
         input_text=req.text,
         gemini_response=gloss_result,
         render_plan=plan,
         doc_id=log_doc_id,
     )
+
+    usage = gloss_result.get("usage")
+    if usage:
+        background_tasks.add_task(
+            database.log_token_usage,
+            endpoint="translate",
+            usage=usage,
+        )
 
     return {
         "gloss": gloss_tokens,
@@ -224,7 +230,7 @@ def translate(request: Request, req: GlossRequest, background_tasks: BackgroundT
     }
 
 @app.get("/api/sign/{sign_name}/landmarks")
-def get_landmarks(sign_name: str, _user: dict = Depends(verify_approved_token)):
+def get_landmarks(sign_name: str, _user: Optional[dict] = Depends(optional_approved_token)):
     """Return 3D full-body pose landmark frames for a sign."""
     pose_data = sign_mgr.get_sign_full_body_pose_frames(sign_name)
     
@@ -259,7 +265,7 @@ class TranscribeResponse(BaseModel):
 
 @app.post("/api/transcribe")
 @limiter.limit("3/minute;20/hour")
-async def transcribe_audio(request: Request, req: TranscribeRequest, background_tasks: BackgroundTasks, user: dict = Depends(verify_approved_token)):
+async def transcribe_audio(request: Request, req: TranscribeRequest, background_tasks: BackgroundTasks, _user: Optional[dict] = Depends(optional_approved_token)):
     """
     Transcribe audio to text using Gemini Live API with automatic VAD.
     Supports multiple languages: English, Chinese, Malay, Tamil, and others.
@@ -274,15 +280,25 @@ async def transcribe_audio(request: Request, req: TranscribeRequest, background_
     result = await gemini.transcribe_audio_live(req.audio_data, req.mime_type, req.language)
 
     if "error" in result:
-        # Fallback to standard transcription method if Live API fails
-        print(f"Live API failed, falling back to standard transcription: {result['error']}")
-        result = gemini.transcribe_audio(req.audio_data, req.mime_type, req.language)
+        # Realtime websocket failures are often transient (Azure drops the
+        # connection right after the handshake on occasion) - retry once
+        # before giving up.
+        print(f"Live API transcription failed, retrying once: {result['error']}")
+        result = await gemini.transcribe_audio_live(req.audio_data, req.mime_type, req.language)
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
     transcription = result.get("transcription", "")
     detected_language = result.get("detected_language")
     print(f"Transcription: {transcription} (detected language: {detected_language})")
+
+    transcribe_usage = result.get("usage")
+    if transcribe_usage:
+        background_tasks.add_task(
+            database.log_token_usage,
+            endpoint="transcribe",
+            usage=transcribe_usage,
+        )
 
     # If auto_translate is enabled, automatically translate
     if req.auto_translate and transcription:
@@ -303,14 +319,20 @@ async def transcribe_audio(request: Request, req: TranscribeRequest, background_
         # Persist query, intermediate Gemini response, and output tokens to Firestore
         background_tasks.add_task(
             database.log_translation,
-            user_id=user.get("uid"),
-            user_email=user.get("email"),
             query_type="voice",
             input_text=transcription,
             gemini_response=gloss_result,
             render_plan=plan,
             doc_id=log_doc_id,
         )
+
+        translate_usage = gloss_result.get("usage")
+        if translate_usage:
+            background_tasks.add_task(
+                database.log_token_usage,
+                endpoint="translate",
+                usage=translate_usage,
+            )
 
         # Return full translation response
         return {
@@ -326,8 +348,6 @@ async def transcribe_audio(request: Request, req: TranscribeRequest, background_
     # Persist transcription-only result to Firestore
     background_tasks.add_task(
         database.log_transcription,
-        user_id=user.get("uid"),
-        user_email=user.get("email"),
         transcription=transcription,
         detected_language=detected_language,
     )
@@ -380,7 +400,7 @@ def _learning_sign_item(token: str) -> Optional[Dict]:
 
 
 @app.get("/api/learning/sign/{token}")
-def get_learning_sign(token: str, user: dict = Depends(verify_approved_token)):
+def get_learning_sign(token: str, _user: Optional[dict] = Depends(optional_approved_token)):
     """Return full sign detail (description, parameters, units, variants) for an exact token."""
     item = _learning_sign_item(token)
     if item is None:
@@ -559,7 +579,7 @@ class FeedbackRequest(BaseModel):
 
 
 @app.post("/api/feedback")
-def submit_feedback(req: FeedbackRequest, user: dict = Depends(verify_approved_token)):
+def submit_feedback(req: FeedbackRequest, user: Optional[dict] = Depends(optional_approved_token)):
     """Store a thumbs-up / thumbs-down rating (with optional comment) for a
     translation.  The ``log_doc_id`` links the feedback to the original entry
     in *translation_logs*.
@@ -570,8 +590,8 @@ def submit_feedback(req: FeedbackRequest, user: dict = Depends(verify_approved_t
         )
 
     doc_id = database.log_feedback(
-        user_id=user.get("uid"),
-        user_email=user.get("email"),
+        user_id=user.get("uid") if user else None,
+        user_email=user.get("email") if user else None,
         rating=req.rating,
         translation_log_id=req.log_doc_id,
         comment=req.comment,
@@ -700,6 +720,18 @@ def admin_stats(user: dict = Depends(verify_token)):
     if not (user.get("admin") is True):
         raise HTTPException(status_code=403, detail="Admin access required")
     return database.get_dashboard_stats()
+
+
+@app.get("/api/admin/token-usage")
+def admin_token_usage(user: dict = Depends(verify_token)):
+    """Return LLM token usage stats (translate + transcribe) over time. Admin only.
+
+    Exists because we have no direct access to the Azure OpenAI usage/billing
+    dashboard - this is our own approximation from per-request usage figures.
+    """
+    if not (user.get("admin") is True):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return database.get_token_usage_stats()
 
 
 @app.post("/api/admin/users/{target_uid}/grant-admin")

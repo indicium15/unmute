@@ -81,13 +81,26 @@ export function TranslatePage({
     setAutoplay(true)
   }, [result])
 
+  const handleVoiceResult = useCallback(
+    (voiceResult: TranslationResult) => {
+      if (voiceResult.transcription) {
+        setInputText(voiceResult.transcription)
+      }
+      onVoiceResult(voiceResult)
+    },
+    [onVoiceResult]
+  )
+
   const {
     isRecording,
     isProcessing,
     error: voiceError,
     retryAfter: voiceRetryAfter,
     toggleRecording,
-  } = useVoiceRecording({ onResult: onVoiceResult })
+  } = useVoiceRecording({
+    onResult: handleVoiceResult,
+    onTranscription: (text) => setInputText(text),
+  })
 
   const activeRetryAfter = retryAfter ?? voiceRetryAfter ?? null
   const activeError = error ?? voiceError ?? null

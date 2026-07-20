@@ -44,8 +44,6 @@ def get_db():
 
 
 def log_translation(
-    user_id: str,
-    user_email: Optional[str],
     query_type: str,
     input_text: str,
     gemini_response: dict[str, Any],
@@ -54,9 +52,11 @@ def log_translation(
 ) -> Optional[str]:
     """Persist a completed translation session to the *translation_logs* collection.
 
+    Does not record any user-identifying information - the translate page is
+    accessible without login, and this log exists purely to review translation
+    quality (gloss output, unmatched words), not to track who made a request.
+
     Args:
-        user_id:        Firebase UID of the authenticated user.
-        user_email:     User's email address (may be None).
         query_type:     ``"text"`` for direct text input, ``"voice"`` for audio
                         transcription that was then translated.
         input_text:     Original user query (plain text or voice transcription).
@@ -77,9 +77,6 @@ def log_translation(
     try:
         doc_ref = db.collection("translation_logs").document(doc_id)
         doc_ref.set({
-            # ── Who made the request ──────────────────────────────────────────
-            "user_id": user_id,
-            "user_email": user_email,
             "timestamp": datetime.now(timezone.utc),
             # ── What the user sent ───────────────────────────────────────────
             "query_type": query_type,
@@ -100,9 +97,7 @@ def log_translation(
             ],
             "render_plan_count": len(render_plan),
         })
-        logger.info(
-            "[DB] Translation logged for user %s → doc %s", user_id, doc_ref.id
-        )
+        logger.info("[DB] Translation logged → doc %s", doc_ref.id)
         return doc_ref.id
     except Exception as exc:
         logger.error("[DB] Failed to log translation: %s", exc)
@@ -110,17 +105,14 @@ def log_translation(
 
 
 def log_transcription(
-    user_id: str,
-    user_email: Optional[str],
     transcription: str,
     detected_language: Optional[str],
 ) -> Optional[str]:
     """Persist a voice transcription (no subsequent translation) to the
-    *transcription_logs* collection.
+    *transcription_logs* collection. No user-identifying information is stored
+    (the translate page is accessible without login).
 
     Args:
-        user_id:            Firebase UID of the authenticated user.
-        user_email:         User's email address (may be None).
         transcription:      Transcribed text returned by Gemini.
         detected_language:  Detected language code (e.g. ``"en"``, ``"zh"``).
 
@@ -135,18 +127,55 @@ def log_transcription(
     try:
         doc_ref = db.collection("transcription_logs").document()
         doc_ref.set({
-            "user_id": user_id,
-            "user_email": user_email,
             "timestamp": datetime.now(timezone.utc),
             "transcription": transcription,
             "detected_language": detected_language,
         })
-        logger.info(
-            "[DB] Transcription logged for user %s → doc %s", user_id, doc_ref.id
-        )
+        logger.info("[DB] Transcription logged → doc %s", doc_ref.id)
         return doc_ref.id
     except Exception as exc:
         logger.error("[DB] Failed to log transcription: %s", exc)
+        return None
+
+
+def log_token_usage(endpoint: str, usage: dict[str, Any]) -> Optional[str]:
+    """Persist an LLM token usage reading to the *token_usage_logs* collection.
+
+    We don't have direct access to the Azure OpenAI usage/billing dashboard, so
+    this is our own approximation built from per-request usage figures returned
+    inline by the API (or, for the realtime Whisper endpoint, by the transcription
+    completion event).
+
+    Args:
+        endpoint: ``"translate"`` or ``"transcribe"``.
+        usage:    Dict with ``input_tokens``/``output_tokens``/``total_tokens`` and
+                  optionally ``model``.
+
+    Returns:
+        The Firestore document ID on success, ``None`` on any failure.
+    """
+    db = get_db()
+    if db is None:
+        logger.warning("[DB] Firestore unavailable – skipping token usage log")
+        return None
+
+    try:
+        input_tokens = usage.get("input_tokens") or 0
+        output_tokens = usage.get("output_tokens") or 0
+        total_tokens = usage.get("total_tokens") or (input_tokens + output_tokens)
+
+        doc_ref = db.collection("token_usage_logs").document()
+        doc_ref.set({
+            "timestamp": datetime.now(timezone.utc),
+            "endpoint": endpoint,
+            "model": usage.get("model"),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+        })
+        return doc_ref.id
+    except Exception as exc:
+        logger.error("[DB] Failed to log token usage: %s", exc)
         return None
 
 
@@ -507,18 +536,24 @@ def get_dashboard_stats() -> dict:
             .stream()
         )
 
-        active_user_ids: set[str] = set()
         by_day: dict[str, int] = defaultdict(int)
 
         for doc in query_docs:
             data = doc.to_dict()
             ts = data.get("timestamp")
-            uid = data.get("user_id")
-            if uid:
-                active_user_ids.add(uid)
             if ts:
                 day = ts[:10] if isinstance(ts, str) else ts.date().isoformat()
                 by_day[day] += 1
+
+        # translation_logs no longer carries a user_id (the translate page is
+        # accessible without login), so "active users" is measured via lesson
+        # activity instead - login is still required there.
+        active_user_ids: set[str] = {
+            doc.reference.parent.parent.id
+            for doc in db.collection_group("lesson_progress")
+            .where("updated_at", ">=", cutoff)
+            .stream()
+        }
 
         today = datetime.now(timezone.utc).date()
         queries_by_day = [
@@ -538,6 +573,79 @@ def get_dashboard_stats() -> dict:
     except Exception as exc:
         logger.error("[DB] Failed to get dashboard stats: %s", exc)
         return {"total_users": 0, "queries_last_30_days": 0, "active_users_30d": 0, "queries_by_day": []}
+
+
+def get_token_usage_stats() -> dict:
+    """Return aggregate LLM token usage for the admin dashboard, bucketed by day
+    over the last 30 days and split by endpoint (translate vs transcribe).
+    """
+    empty = {
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0,
+        "by_endpoint": {},
+        "usage_by_day": [],
+    }
+    db = get_db()
+    if db is None:
+        return empty
+
+    from datetime import timedelta
+    from collections import defaultdict
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        docs = list(
+            db.collection("token_usage_logs")
+            .where("timestamp", ">=", cutoff)
+            .stream()
+        )
+
+        by_day: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+        by_endpoint: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+        total_input = total_output = total_all = 0
+
+        for doc in docs:
+            data = doc.to_dict()
+            ts = data.get("timestamp")
+            input_tokens = data.get("input_tokens", 0) or 0
+            output_tokens = data.get("output_tokens", 0) or 0
+            total_tokens = data.get("total_tokens", 0) or 0
+            endpoint = data.get("endpoint", "unknown")
+
+            total_input += input_tokens
+            total_output += output_tokens
+            total_all += total_tokens
+
+            by_endpoint[endpoint]["input_tokens"] += input_tokens
+            by_endpoint[endpoint]["output_tokens"] += output_tokens
+            by_endpoint[endpoint]["total_tokens"] += total_tokens
+
+            if ts:
+                day = ts[:10] if isinstance(ts, str) else ts.date().isoformat()
+                by_day[day]["input_tokens"] += input_tokens
+                by_day[day]["output_tokens"] += output_tokens
+                by_day[day]["total_tokens"] += total_tokens
+
+        today = datetime.now(timezone.utc).date()
+        usage_by_day = [
+            {
+                "date": (d := (today - timedelta(days=i)).isoformat()),
+                **by_day.get(d, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}),
+            }
+            for i in range(29, -1, -1)
+        ]
+
+        return {
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "total_tokens": total_all,
+            "by_endpoint": dict(by_endpoint),
+            "usage_by_day": usage_by_day,
+        }
+    except Exception as exc:
+        logger.error("[DB] Failed to get token usage stats: %s", exc)
+        return empty
 
 
 # ── Admin claim management ────────────────────────────────────────────────────
