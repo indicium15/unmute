@@ -21,12 +21,16 @@ from auth import verify_token, verify_approved_token, optional_approved_token
 import database
 
 def _get_client_ip(request: Request) -> str:
+    # Cloud Run's front end is the only proxy hop we trust, and it appends the
+    # real client IP as the last entry of X-Forwarded-For (after any value the
+    # client itself supplied) - so the leftmost entry is attacker-controlled
+    # and must not be used, only the rightmost.
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+        return forwarded_for.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
-limiter = Limiter(key_func=_get_client_ip)
+limiter = Limiter(key_func=_get_client_ip, headers_enabled=True)
 
 app = FastAPI()
 app.state.limiter = limiter
@@ -282,7 +286,11 @@ async def transcribe_audio(request: Request, req: TranscribeRequest, background_
     if "error" in result:
         # Realtime websocket failures are often transient (Azure drops the
         # connection right after the handshake on occasion) - retry once
-        # before giving up.
+        # before giving up. Config/input errors will fail identically on
+        # retry, so skip the retry and surface them immediately.
+        permanent_error = result["error"].startswith("No API key") or result["error"].startswith("Failed to decode audio")
+        if permanent_error:
+            raise HTTPException(status_code=400, detail=result["error"])
         print(f"Live API transcription failed, retrying once: {result['error']}")
         result = await gemini.transcribe_audio_live(req.audio_data, req.mime_type, req.language)
         if "error" in result:
@@ -472,7 +480,7 @@ def get_tag_config(_user=Depends(optional_approved_token)):
 
 
 @app.get("/api/learning/lessons", response_model=List[LessonSummary])
-def get_lessons(_user=Depends(verify_approved_token)):
+def get_lessons(_user=Depends(optional_approved_token)):
     """Return all lesson summaries (metadata + sign count, no GIF data)."""
     return [
         {
@@ -489,7 +497,7 @@ def get_lessons(_user=Depends(verify_approved_token)):
 
 
 @app.get("/api/learning/lessons/{lesson_id}", response_model=LessonDetail)
-def get_lesson(lesson_id: str, _user=Depends(verify_approved_token)):
+def get_lesson(lesson_id: str, _user=Depends(optional_approved_token)):
     """Return full lesson detail with resolved GIF URLs for all signs."""
     lesson = next((l for l in _lessons if l["lesson_id"] == lesson_id), None)
     if not lesson:
