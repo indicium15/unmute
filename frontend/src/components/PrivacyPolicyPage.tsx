@@ -142,8 +142,8 @@ export function PrivacyPolicyPage({ onNavigate }: PrivacyPolicyPageProps) {
             never linked to your identity, are not affected.
           </p>
         </Section>
-      <Footer onNavigate={onNavigate} />
       </main>
+      <Footer onNavigate={onNavigate} />
     </div>
   )
 }
