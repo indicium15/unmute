@@ -74,7 +74,7 @@ gcloud run deploy kinnect-backend \
   --region asia-southeast1 \
   --memory 1Gi \
   --allow-unauthenticated \
-  --set-env-vars USE_GCS=true,GCS_BUCKET_NAME=kinnect-sgsl-datasets,LLM_PROVIDER=azure,AZURE_OPENAI_ENDPOINT=https://bettersg-openai-sea-prod.openai.azure.com/,AZURE_OPENAI_API_VERSION=2025-04-01-preview,AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json \
+  --set-env-vars GCS_BUCKET_NAME=kinnect-sgsl-datasets,LLM_PROVIDER=azure,AZURE_OPENAI_ENDPOINT=https://bettersg-openai-sea-prod.openai.azure.com/,AZURE_OPENAI_API_VERSION=2025-04-01-preview,AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json \
   --set-secrets AZURE_OPENAI_API_KEY=azure-openai-api-key:latest,/secrets/firebase-key.json=firebase-key:latest \
   --project kinnect-sgsl
 ```
@@ -112,7 +112,6 @@ gcloud run deploy kinnect-backend --image gcr.io/kinnect-sgsl/kinnect-backend --
 | `AZURE_OPENAI_API_VERSION` | `2025-04-01-preview` |
 | `AZURE_OPENAI_DEPLOYMENT` | `gpt-5.4-mini` (deployment name — confirm this matches the actual Azure deployment name for the model version 2026-03-17) |
 | `LLM_PROVIDER` | `azure` |
-| `USE_GCS` | `true` |
 | `GCS_BUCKET_NAME` | `kinnect-sgsl-datasets` |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | `/secrets/firebase-key.json` |
 

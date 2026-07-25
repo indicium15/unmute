@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -16,7 +15,7 @@ from vocab import vocab
 from llm_client import LLMClient
 from planner import build_render_plan
 from sign_seq import SignSequenceManager
-from gcs_storage import USE_GCS, get_dataset_info, get_static_url, GCS_SGLS_DATASET_ROOT
+from gcs_storage import get_dataset_info, get_static_url, GCS_SGLS_DATASET_ROOT
 from auth import verify_token, verify_approved_token, optional_approved_token
 import database
 
@@ -46,19 +45,8 @@ app.add_middleware(
     expose_headers=["Retry-After"],
 )
 
-# Mount Static Directories for sign language assets only (when not using GCS)
-# When USE_GCS=true, assets are served directly from Google Cloud Storage
-DATASET_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sgsl_dataset")
-PROCESSED_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sgsl_processed")
-
-if not USE_GCS:
-    print("[App] Using local static file serving")
-    if os.path.exists(DATASET_PATH):
-        app.mount("/static/sgsl_dataset", StaticFiles(directory=DATASET_PATH), name="sgsl_dataset")
-    if os.path.exists(PROCESSED_PATH):
-        app.mount("/static/sgsl_processed", StaticFiles(directory=PROCESSED_PATH), name="sgsl_processed")
-else:
-    print(f"[App] Using GCS for static files: {get_dataset_info()['public_url']}")
+# Sign language assets (GIFs, landmark pickles) are always served directly from GCS.
+print(f"[App] Using GCS for static files: {get_dataset_info()['public_url']}")
 
 
 

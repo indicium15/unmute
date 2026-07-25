@@ -112,14 +112,14 @@ export function LessonQuiz({ lesson, onComplete, onBack, onNavigate, onSignOut, 
             Back
           </button>
           <h1 className="text-center text-[30px] font-bold leading-9 text-white">{lesson.lesson_name}</h1>
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <div className="h-2 max-w-[400px] flex-1 overflow-hidden rounded-full bg-white/30">
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <div className="h-2 w-full max-w-[400px] overflow-hidden rounded-full bg-white/30">
               <div
                 className="h-full rounded-full bg-white transition-all"
                 style={{ width: `${((index + 1) / order.length) * 100}%` }}
               />
             </div>
-            <span className="shrink-0 text-[12px] font-medium text-white/80">
+            <span className="text-[12px] font-medium text-white/80">
               {index + 1}/{order.length}
             </span>
           </div>

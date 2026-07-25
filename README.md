@@ -164,8 +164,7 @@ singapore-sign-language/
 │   ├── hand_embedder.py       # Hand landmark extraction
 │   ├── aliases.json           # Sign name aliases
 │   ├── pyproject.toml         # Backend Python dependencies for uv
-│   ├── uv.lock                # Locked backend dependency graph
-│   └── requirements.txt       # Legacy dependency list
+│   └── uv.lock                # Locked backend dependency graph
 ├── frontend/
 │   ├── index.html             # Main HTML interface
 │   ├── script.js              # Frontend JavaScript logic

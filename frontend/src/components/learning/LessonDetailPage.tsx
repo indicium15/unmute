@@ -93,14 +93,14 @@ export function LessonDetailPage({
             Back
           </button>
           <h1 className="text-center text-[30px] font-bold leading-9 text-white">{lesson.lesson_name}</h1>
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <div className="h-2 max-w-[400px] flex-1 overflow-hidden rounded-full bg-white/30">
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <div className="h-2 w-full max-w-[400px] overflow-hidden rounded-full bg-white/30">
               <div
                 className="h-full rounded-full bg-white transition-all"
                 style={{ width: `${((selectedIndex + 1) / total) * 100}%` }}
               />
             </div>
-            <span className="shrink-0 text-[12px] font-medium text-white/80">
+            <span className="text-[12px] font-medium text-white/80">
               {selectedIndex + 1}/{total}
             </span>
           </div>
@@ -110,7 +110,7 @@ export function LessonDetailPage({
       {/* Content */}
       <div className="mx-auto flex max-w-[1152px] gap-6 px-6 py-8">
         {/* Sidebar */}
-        <aside className="flex w-[280px] flex-shrink-0 flex-col gap-2">
+        <aside className="hidden w-[280px] flex-shrink-0 flex-col gap-2 md:flex">
           {lesson.signs.map((s, idx) => {
             const isCurrent = idx === selectedIndex
             const isDone = signsViewed.has(s.token) && !isCurrent
@@ -270,11 +270,12 @@ export function LessonDetailPage({
               Previous
             </button>
             <button
-              onClick={() => setSelectedIndex((i) => Math.min(total - 1, i + 1))}
-              disabled={selectedIndex === total - 1}
-              className="flex-1 rounded-[12px] bg-[#6176f7] py-3 text-[14px] font-medium text-white transition-colors hover:bg-[#5068f0] disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() =>
+                selectedIndex === total - 1 ? onStartQuiz() : setSelectedIndex((i) => Math.min(total - 1, i + 1))
+              }
+              className="flex-1 rounded-[12px] bg-[#6176f7] py-3 text-[14px] font-medium text-white transition-colors hover:bg-[#5068f0]"
             >
-              Next
+              {selectedIndex === total - 1 ? "Start Quiz" : "Next"}
             </button>
           </div>
         </main>

@@ -1,14 +1,6 @@
-import json
-import os
 from typing import Dict, List, Optional
 
-from gcs_storage import read_json, USE_GCS
-
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
-VOCAB_PATH = os.path.join(PROJECT_ROOT, "sgsl_processed", "vocab.json")
-SIGNS_METADATA_PATH = os.path.join(PROJECT_ROOT, "sgsl_processed", "signs_metadata.json")
-ALIASES_PATH = os.path.join(BACKEND_DIR, "aliases.json")
+from gcs_storage import read_json
 
 GCS_VOCAB_PATH = "sgsl_processed/vocab.json"
 GCS_SIGNS_METADATA_PATH = "sgsl_processed/signs_metadata.json"
@@ -35,14 +27,8 @@ class VocabLoader:
 
     def _load_data(self):
         # Load vocab
-        data = None
-        if USE_GCS:
-            print(f"[Vocab] Loading from GCS: {GCS_VOCAB_PATH}")
-            data = read_json(GCS_VOCAB_PATH)
-        elif os.path.exists(VOCAB_PATH):
-            print(f"[Vocab] Loading from local: {VOCAB_PATH}")
-            with open(VOCAB_PATH, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+        print(f"[Vocab] Loading from GCS: {GCS_VOCAB_PATH}")
+        data = read_json(GCS_VOCAB_PATH)
 
         if data:
             if "token_to_sign" in data:
@@ -51,25 +37,16 @@ class VocabLoader:
                 self.token_to_sign = data
             self.sign_to_token = {v: k for k, v in self.token_to_sign.items()}
             self.allowed_tokens_list = list(self.token_to_sign.keys())
-            print(f"[Vocab] Loaded {len(self.token_to_sign)} tokens")
+            self.aliases = data.get("aliases", {})
+            print(f"[Vocab] Loaded {len(self.token_to_sign)} tokens, {len(self.aliases)} aliases")
         else:
-            print(f"Warning: Vocab file not found at {VOCAB_PATH} or GCS")
+            print(f"Warning: Vocab file not found in GCS at {GCS_VOCAB_PATH}")
 
         # Load signs_metadata
-        smd = None
-        if USE_GCS:
-            smd = read_json(GCS_SIGNS_METADATA_PATH)
-        elif os.path.exists(SIGNS_METADATA_PATH):
-            with open(SIGNS_METADATA_PATH, 'r', encoding='utf-8') as f:
-                smd = json.load(f)
+        smd = read_json(GCS_SIGNS_METADATA_PATH)
         if smd:
             self.signs_metadata = smd
             print(f"[Vocab] Loaded signs_metadata for {len(smd)} signs")
-
-        # Load aliases
-        if os.path.exists(ALIASES_PATH):
-            with open(ALIASES_PATH, 'r', encoding='utf-8') as f:
-                self.aliases = json.load(f)
 
     def canon(self, text: str) -> str:
         if not text:

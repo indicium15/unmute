@@ -32,9 +32,22 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="sgsl_dataset", help="Path to input dataset")
     parser.add_argument("--output", default="sgsl_processed", help="Path to output directory")
+    parser.add_argument(
+        "--aliases",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "aliases.json"),
+        help="Path to token alias overrides JSON (e.g. PLS -> PLEASE), merged into vocab.json",
+    )
     args = parser.parse_args()
 
     os.makedirs(args.output, exist_ok=True)
+
+    aliases = {}
+    if os.path.exists(args.aliases):
+        with open(args.aliases, "r", encoding="utf-8") as f:
+            aliases = json.load(f)
+        print(f"Loaded {len(aliases)} aliases from {args.aliases}")
+    else:
+        print(f"[!] No aliases file found at {args.aliases}, continuing without aliases")
 
     token_to_sign = {}
     sign_to_token = {}
@@ -84,7 +97,11 @@ def main():
 
     vocab_path = os.path.join(args.output, "vocab.json")
     with open(vocab_path, "w", encoding="utf-8") as f:
-        json.dump({"token_to_sign": token_to_sign, "sign_to_token": sign_to_token}, f, indent=2)
+        json.dump(
+            {"token_to_sign": token_to_sign, "sign_to_token": sign_to_token, "aliases": aliases},
+            f,
+            indent=2,
+        )
     print(f"Saved vocab to {vocab_path}")
 
     signs_meta_path = os.path.join(args.output, "signs_metadata.json")
