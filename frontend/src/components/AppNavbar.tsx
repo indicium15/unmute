@@ -6,6 +6,14 @@ const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED !== "false"
 
 export type NavMode = "home" | "translate" | "learn" | "dictionary" | "admin"
 
+// Shared nav-related props passed through by every page that renders AppNavbar.
+export interface NavProps {
+  onNavigate: (dest: NavMode) => void
+  onSignOut?: () => void
+  isAdmin?: boolean
+  isLoggedIn?: boolean
+}
+
 interface AppNavbarProps {
   activeMode: NavMode
   onNavigate: (mode: NavMode) => void

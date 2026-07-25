@@ -1,19 +1,19 @@
-# Unmute — Singapore Sign Language Translator
+# Kinnect — Singapore Sign Language Translator
 
-A web application that translates text and voice input into Singapore Sign Language (SgSL) with real-time 3D avatar animations. Built with FastAPI, Three.js, and Google Gemini AI.
+A web application that translates text and voice input into Singapore Sign Language (SgSL), rendered as sign GIFs. Built with FastAPI, React, and Azure OpenAI.
 
 ## Overview
 
-Unmute is an interactive sign language translator that bridges communication gaps by converting spoken/written language into animated Singapore Sign Language signs. The application supports multiple input methods (text and voice) and multiple languages including English, Chinese, Malay, and Tamil.
+Kinnect is an interactive sign language translator that bridges communication gaps by converting spoken/written language into SgSL sign sequences. The application supports text and voice input and includes a searchable sign dictionary and a structured Learn module with lessons and quizzes.
 
 ### Key Features
 
-- **Text-to-Sign Translation**: Input text in multiple languages and get SgSL gloss tokens
-- **Voice-to-Sign Translation**: Record audio and automatically transcribe and translate to sign language
-- **Avatar Animation with MediaPipe**: Visualize signs using hand and body landmark animations
-- **Multi-language Support**: Supports English, Chinese (Simplified/Traditional), Malay, Tamil, and other languages
-- **Real-time Processing**: Fast translation and rendering pipeline using Google Gemini AI
-- **Interactive UI**: Modern, warm beige-themed interface with smooth animations
+- **Text-to-Sign Translation**: Input text and get SgSL gloss tokens rendered as a sequence of sign GIFs
+- **Voice-to-Sign Translation**: Record audio, transcribed in real time via Azure's realtime Whisper deployment, and automatically translated to sign language
+- **Sign Dictionary**: Browse and search the full sign vocabulary, with per-sign detail pages
+- **Learn Module**: Structured lessons (neighborhoods, food, colours, family, emotions, days/calendar) with progress tracking and quizzes
+- **Auth & Admin**: Firebase-authenticated accounts with an approval/allowlist flow, plus an admin dashboard for logs, user management, and LLM token-usage/cost tracking
+- **Feedback**: Thumbs up/down + comments on translations, logged for review
 
 ## Dataset
 
@@ -21,38 +21,39 @@ This project uses sign language data from the **Singapore Sign Language Sign Ban
 
 **Source**: [https://blogs.ntu.edu.sg/sgslsignbank/signs/](https://blogs.ntu.edu.sg/sgslsignbank/signs/)
 
-The dataset contains over 1,100 words and 1,307 signs from the Singapore Sign Language corpus, providing a comprehensive vocabulary for translation.
-
 ## Tech Stack
 
 ### Backend
-- **FastAPI** - Modern Python web framework
-- **Google Gemini AI** - Text-to-gloss translation and audio transcription
-- **MediaPipe** - Hand and pose landmark extraction
+- **FastAPI** - Python web framework, dependencies managed with `uv`
+- **Azure OpenAI** (`gpt-5.4-mini`) - Text-to-sign translation
+- **Azure Realtime Whisper** - Voice transcription over a websocket
+- **Firebase, Firestore** - Storage of users, allowlist, translation/feedback logs, lesson progress, token usage
+- **Google Cloud Storage** - Sign GIFs, vocab, and landmark pickles
+- **MediaPipe** - Hand/pose landmark extraction 
 
 ### Frontend
-- **Three.js** - 3D avatar rendering
-- **Tailwind CSS** - Styling
+- **React 19** + **TypeScript**, built with **Vite**
+- **Tailwind CSS 4** - Styling
+- **Firebase** - Auth
 - **Web Audio API** - Voice recording
-
-### Processing
-- **OpenCV** - Video/image processing
-- **Pydub** - Audio processing
 
 ## Setup Instructions
 
 ### Prerequisites
 
-- Python 3.11 or higher
-- uv (Python package and environment manager)
-- A Google Gemini API key 
+- Python 3.11 or 3.12
+- [uv](https://docs.astral.sh/uv/)
+- Node.js + npm
+- An Azure OpenAI resource (chat deployment + a separate realtime Whisper deployment)
+- A Firebase project for authentication 
+- A GCS bucket for sign assets
 
 ### Installation
 
 1. **Clone the repository**
    ```bash
-   git clone github.com/Vshnv2001/unmute
-   cd singapore-sign-language
+   git clone github.com/Vshnv2001/Kinnect
+   cd Kinnect
    ```
 
 2. **Install backend dependencies**
@@ -62,153 +63,144 @@ The dataset contains over 1,100 words and 1,307 signs from the Singapore Sign La
    cd ..
    ```
 
-3. **Set up environment variables**
-   
-   Create a `.env` file in the `backend/` directory:
+3. **Install frontend dependencies**
    ```bash
-   cd backend
-   echo "GEMINI_API_KEY=your_api_key_here" > .env
+   cd frontend
+   npm install
    cd ..
    ```
-   
-   Replace `your_api_key_here` with your actual Google Gemini API key.
 
-4. **Prepare the dataset**
-   
-   The application expects processed sign language data in the following structure:
+4. **Set up environment variables**
+
+   Create `backend/.env`:
    ```
-   sgsl_dataset/
-     └── {sign_name}/
-         └── {sign_name}.gif
-   
-   sgsl_processed/
-     ├── vocab.json
-     └── landmarks_pkl/
-         └── {sign_name}.pkl
+   AUTH_ENABLED=true
+   LLM_PROVIDER=azure
+   AZURE_OPENAI_API_KEY=...
+   AZURE_OPENAI_ENDPOINT=...
+   AZURE_OPENAI_API_VERSION=2025-04-01-preview
+   AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini
+   AZURE_WHISPER_ENDPOINT=...
+   AZURE_WHISPER_OPENAI_API_KEY=...
+   AZURE_WHISPER_DEPLOYMENT=gpt-realtime-whisper
+   GCS_BUCKET_NAME=kinnect-sgsl-datasets
+   FIREBASE_SERVICE_ACCOUNT_JSON=...
    ```
-   
-   Use the preprocessing scripts in the `scripts/` directory to process raw sign data:
-   ```bash
-   python scripts/preprocess_gifs_to_pkl.py
-   python scripts/build_vocab_from_json.py
+
+   Create `frontend/.env`:
    ```
+   VITE_API_BASE_URL=http://127.0.0.1:8000
+   VITE_AUTH_ENABLED=true
+   VITE_FIREBASE_API_KEY=...
+   VITE_FIREBASE_AUTH_DOMAIN=...
+   VITE_FIREBASE_PROJECT_ID=kinnect-sgsl
+   VITE_FIREBASE_STORAGE_BUCKET=...
+   VITE_FIREBASE_MESSAGING_SENDER_ID=...
+   VITE_FIREBASE_APP_ID=...
+   ```
+
+   Setting `AUTH_ENABLED=false` (backend) / `VITE_AUTH_ENABLED=false` (frontend) runs the app in open-access demo mode, bypassing Firebase auth.
 
 ### Running the Application
 
-1. **Start the backend server**
-   ```bash
-   # From the project root
-   cd backend
-   uv run uvicorn app:app --reload --host 0.0.0.0 --port 8000
-   ```
+Backend and frontend run as separate servers in dev (there's a `dev.sh` tmux helper that starts both):
 
-2. **Access the application**
-   
-   Open your browser and navigate to:
-   ```
-   http://localhost:8000
-   ```
+```bash
+# Backend — from backend/
+uv run uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
-   The FastAPI server serves both the API endpoints and the frontend static files.
+# Frontend — from frontend/
+npm run dev
+```
+
+- Backend API: `http://localhost:8000`
+- Frontend dev server: `http://localhost:5173`
+
+Alternatively, run the backend with Docker Compose (`backend/docker-compose.yml`).
 
 ## Usage
 
 ### Text Translation Mode
 
-1. Click on the "Text" tab in the interface
-2. Type or paste your text in the input field
-3. Click "Translate" or press Enter
-4. View the translated gloss tokens and 3D sign animations
+1. Go to the Translate page and select the "Text" input mode
+2. Type your text and submit
+3. View the resulting gloss tokens and the sign GIF sequence
 
 ### Voice Translation Mode
 
-1. Click on the "Voice" tab
-2. Click the microphone button to start recording
-3. Speak your message
-4. Click stop when finished
-5. The audio will be automatically transcribed and translated to sign language
+1. Select the "Voice" input mode
+2. Start recording, speak your message, then stop
+3. Audio is transcribed in real time and translated to sign language
 
 ### API Endpoints
 
-The backend exposes the following REST API endpoints:
+Selected endpoints (see `AGENTS.md` for the full list, including learning/admin routes):
 
 - `GET /health` - Health check and vocabulary size
-- `POST /api/translate` - Translate text to SgSL gloss tokens
+- `POST /api/translate` - Translate text to SgSL gloss tokens + render plan
   ```json
   {
     "text": "hello world",
-    "language": "en"  // optional, auto-detects if omitted
+    "language": "en"
   }
   ```
-- `POST /api/transcribe` - Transcribe audio and optionally translate
+- `POST /api/transcribe` - Transcribe audio and optionally auto-translate
   ```json
   {
     "audio_data": "base64_encoded_audio",
     "mime_type": "audio/webm",
-    "language": "en",  // optional
-    "auto_translate": true  // optional
+    "auto_translate": true
   }
   ```
-- `GET /api/sign/{sign_name}/landmarks` - Get 3D landmark data for a sign
+- `GET /api/sign/{sign_name}/landmarks` - Pose landmark frames for a sign (unused by the current frontend)
+- `GET /api/learning/signs` / `GET /api/learning/lessons` - Dictionary and Learn module data
+- `POST /api/feedback` - Thumbs up/down + comment on a translation
+
+Most endpoints expect `Authorization: Bearer <Firebase ID token>`; public pages use routes that tolerate anonymous access. See the Auth Flow section of `AGENTS.md` for details.
 
 ## Project Structure
 
 ```
-singapore-sign-language/
+Kinnect/
 ├── backend/
-│   ├── app.py                 # FastAPI application and routes
-│   ├── gemini_client.py       # Google Gemini API client
-│   ├── vocab.py               # Vocabulary management
-│   ├── planner.py             # Render plan builder
-│   ├── sign_seq.py            # Sign sequence manager
-│   ├── hand_embedder.py       # Hand landmark extraction
-│   ├── aliases.json           # Sign name aliases
-│   ├── pyproject.toml         # Backend Python dependencies for uv
-│   └── uv.lock                # Locked backend dependency graph
+│   ├── app.py                 # FastAPI app: routes, CORS, rate limiting
+│   ├── routers/                # auth, dictionary, lessons, translation route handlers
+│   ├── models/                 # Pydantic models (auth, common, dictionary, gcp, lessons, translation)
+│   ├── utils/                  # llm, gcp/GCS, dictionary, lessons, translation, auth, rate_limit helpers
+│   ├── content/
+│   │   ├── lessons/             # Lesson JSON definitions
+│   │   └── tag_config.json      # Tag display colors
+│   ├── scripts/
+│   │   └── hand_embedder.py     # MediaPipe hand landmark extraction (offline use)
+│   ├── pyproject.toml          # Backend Python dependencies for uv
+│   └── uv.lock                 # Locked backend dependency graph
 ├── frontend/
-│   ├── index.html             # Main HTML interface
-│   ├── script.js              # Frontend JavaScript logic
-│   └── avatar.js              # 3D avatar rendering
-├── scripts/
-│   ├── preprocess_gifs_to_pkl.py    # Dataset preprocessing
-│   ├── build_vocab_from_json.py     # Vocabulary builder
-│   ├── test_gemini.py               # Gemini API testing
-│   └── ...                          # Other utility scripts
-├── utils/
-│   ├── generate_pose_data.py        # Pose data generation
-│   ├── softdtw_nn_pipeline.py       # Soft-DTW neural network
-│   └── webcam_demo.py               # Webcam demo utility
-├── sgsl_dataset/              # Raw sign GIFs (not in repo)
-├── sgsl_processed/            # Processed landmarks and vocab (not in repo)
-└── README.md                  # This file
+│   ├── src/
+│   │   ├── App.tsx              # Root component, path-based mode switching, auth gating
+│   │   ├── components/          # TranslatePage, DictionaryPage, LearningPage, AdminPage, etc.
+│   │   ├── hooks/                # useTranslation, useSignCatalog, useSignDetail, useVoiceRecording
+│   │   ├── lib/                  # firebase.ts, categories.ts, utils.ts
+│   │   └── contexts/             # AuthContext
+│   └── package.json
+├── data-pipeline/
+│   ├── scrape.py                # Scrapes the NTU SgSL Sign Bank → sgsl_dataset/
+│   ├── build_vocab_from_json.py # sgsl_dataset/ metadata → vocab.json + signs_metadata.json
+│   ├── aliases.json             # Token alias overrides merged into vocab.json
+│   └── pyproject.toml           # Own uv-managed dependencies (requests, beautifulsoup4, tqdm)
+├── docs/                       # backend/, frontend/, deploy/ guides — see docs/README.md
+├── dev.sh                      # tmux helper to run backend + frontend together
+└── README.md                   # This file
 ```
 
-## Development
+## Data Storage (GCS)
 
-### Testing
+- Bucket: `kinnect-sgsl-datasets` (env `GCS_BUCKET_NAME`)
+- `sgsl_dataset/{SIGN_NAME}/{SIGN_NAME}.gif` - gifs used for translation, dictionary and learning
+- `sgsl_processed/vocab.json` — token↔sign vocabulary, loaded at backend startup
+- `sgsl_processed/signs_metadata.json` — per-sign description/parameters/variants/units
+- `sgsl_processed/landmarks_pkl/{SIGN_NAME}.pkl` — pose/hand landmark frames (backs the unused landmarks endpoint)
 
-Run individual test scripts:
-```bash
-python scripts/test_gemini.py
-python scripts/verify_vocab.py
-python scripts/test_planner.py
-```
+## Deployment
 
-### Preprocessing Pipeline
-
-To process new sign language data:
-
-1. **Extract landmarks from GIFs**
-   ```bash
-   python scripts/preprocess_gifs_to_pkl.py
-   ```
-
-2. **Build vocabulary**
-   ```bash
-   python scripts/build_vocab_from_json.py
-   ```
-
-3. **Visualize and verify**
-   ```bash
-   python scripts/test_preprocess_visualize.py
-   ```
+- **Backend**: Google Cloud Run — see `docs/deploy/BACKEND_DEPLOYMENT.md`
+- **Frontend**: Firebase Hosting — see `docs/deploy/FRONTEND_DEPLOYMENT.md`

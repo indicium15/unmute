@@ -1,17 +1,13 @@
 import { useState } from "react"
 import { useVoiceRecording } from "@/hooks/useVoiceRecording"
 import type { TranslationResult } from "@/hooks/useTranslation"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavProps } from "@/components/AppNavbar"
 import { Footer } from "@/components/Footer"
 
-interface HomePageProps {
-  onNavigate: (mode: NavMode) => void
+interface HomePageProps extends NavProps {
   onSignIn?: () => void
   onTranslate?: (text: string) => void
   onVoiceResult?: (result: TranslationResult) => void
-  onLogout?: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
 }
 
 const SUGGESTED_PHRASES = [
@@ -21,7 +17,7 @@ const SUGGESTED_PHRASES = [
   "I am hungry, want to go for supper tonight?",
 ]
 
-export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isAdmin, isLoggedIn = true }: HomePageProps) {
+export function HomePage({ onNavigate, onTranslate, onVoiceResult, onSignOut, isAdmin, isLoggedIn = true }: HomePageProps) {
   const [inputText, setInputText] = useState("")
 
   const { isRecording, isProcessing, toggleRecording } = useVoiceRecording({
@@ -44,7 +40,7 @@ export function HomePage({ onNavigate, onTranslate, onVoiceResult, onLogout, isA
       <AppNavbar
         activeMode="home"
         onNavigate={onNavigate}
-        onLogout={onLogout ?? (() => {})}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
         isLoggedIn={isLoggedIn}
       />

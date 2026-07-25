@@ -1,19 +1,19 @@
+/*
+  Displays the detail page for a lesson
+*/
+
 import { useEffect, useState } from "react"
 import { ArrowLeft, BookOpen, ChevronRight, Lightbulb, Tag } from "lucide-react"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavProps } from "@/components/AppNavbar"
 import { formatSignLabel } from "./utils"
 import type { LessonDetail, LessonProgress, LessonSign } from "./types"
 
-interface LessonDetailPageProps {
+interface LessonDetailPageProps extends NavProps {
   lesson: LessonDetail
   progress?: LessonProgress
   onBack: () => void
   onStartQuiz: () => void
   onSignViewed: (token: string) => void
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
 }
 
 function ParamValue({ value }: { value?: string }) {
@@ -77,7 +77,7 @@ export function LessonDetailPage({
       <AppNavbar
         activeMode="learn"
         onNavigate={(dest) => onNavigate(dest)}
-        onLogout={onSignOut}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
         isLoggedIn={isLoggedIn}
       />

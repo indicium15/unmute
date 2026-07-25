@@ -1,16 +1,8 @@
 import { useState, useCallback } from "react"
-import { auth } from "@/lib/firebase"
+import { API_BASE_URL, authHeaders } from "@/lib/api"
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 const API_URL = `${API_BASE_URL}/api/translate`
 const LANDMARKS_URL = `${API_BASE_URL}/api/sign`
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const user = auth.currentUser
-  if (!user) return { "Content-Type": "application/json" }
-  const token = await user.getIdToken()
-  return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
-}
 
 export interface PlanItem {
   type: "sign" | "text"
@@ -63,7 +55,7 @@ export function useTranslation() {
     try {
       const res = await fetch(API_URL, {
         method: "POST",
-        headers: await authHeaders(),
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ text }),
       })
 

@@ -1,15 +1,6 @@
 import { useState, useEffect } from "react"
-import { auth } from "@/lib/firebase"
+import { API_BASE_URL, authHeaders } from "@/lib/api"
 import type { SignDetail } from "@/components/signs/types"
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const user = auth.currentUser
-  if (!user) return {}
-  const token = await user.getIdToken()
-  return { Authorization: `Bearer ${token}` }
-}
 
 export function useSignDetail(token: string | undefined) {
   const [detail, setDetail] = useState<SignDetail | null>(null)

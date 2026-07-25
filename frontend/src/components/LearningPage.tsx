@@ -1,20 +1,11 @@
 import { useCallback, useEffect, useState } from "react"
-import type { NavMode } from "@/components/AppNavbar"
-import { auth } from "@/lib/firebase"
+import type { NavProps } from "@/components/AppNavbar"
+import { API_BASE_URL, authHeaders } from "@/lib/api"
 import { LessonsLandingPage } from "@/components/learning/LessonsLandingPage"
 import { LessonDetailPage } from "@/components/learning/LessonDetailPage"
 import { LessonQuiz, type LessonQuizResult } from "@/components/learning/LessonQuiz"
 import { LessonQuizResults } from "@/components/learning/LessonQuizResults"
 import type { LessonDetail, LessonProgress, LessonSummary } from "@/components/learning/types"
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const user = auth.currentUser
-  if (!user) return { "Content-Type": "application/json" }
-  const token = await user.getIdToken()
-  return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
-}
 
 function upsertProgress(list: LessonProgress[], updated: LessonProgress): LessonProgress[] {
   const idx = list.findIndex((p) => p.lesson_id === updated.lesson_id)
@@ -26,12 +17,7 @@ function upsertProgress(list: LessonProgress[], updated: LessonProgress): Lesson
 
 type View = "landing" | "detail" | "quiz" | "quiz-results"
 
-export interface LearningPageProps {
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut?: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
-}
+export type LearningPageProps = NavProps
 
 export function LearningPage({ onNavigate, onSignOut, isAdmin, isLoggedIn = false }: LearningPageProps) {
   const [view, setView] = useState<View>("landing")
@@ -133,7 +119,7 @@ export function LearningPage({ onNavigate, onSignOut, isAdmin, isLoggedIn = fals
       setView("quiz-results")
       if (!selectedLessonId) return
       try {
-        const headers = await authHeaders()
+        const headers = { "Content-Type": "application/json", ...(await authHeaders()) }
         const res = await fetch(`${API_BASE_URL}/api/learning/lessons/${selectedLessonId}/quiz-attempt`, {
           method: "POST",
           headers,

@@ -1,6 +1,10 @@
+/*
+  Displays the quiz at the end of a lesson and handles the quiz results
+*/
+
 import { useMemo, useState } from "react"
 import { ArrowLeft, ChevronRight, Circle, CircleCheck, CircleX } from "lucide-react"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavProps } from "@/components/AppNavbar"
 import { cn } from "@/lib/utils"
 import { formatSignLabel, shuffle } from "./utils"
 import type { LessonDetail, LessonSign } from "./types"
@@ -13,14 +17,10 @@ export interface LessonQuizResult {
   missed: LessonSign[]
 }
 
-interface LessonQuizProps {
+interface LessonQuizProps extends NavProps {
   lesson: LessonDetail
   onComplete: (result: LessonQuizResult) => void
   onBack: () => void
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
 }
 
 function usageBullets(visualGuide?: string | null): string[] {
@@ -96,7 +96,7 @@ export function LessonQuiz({ lesson, onComplete, onBack, onNavigate, onSignOut, 
       <AppNavbar
         activeMode="learn"
         onNavigate={(dest) => onNavigate(dest)}
-        onLogout={onSignOut}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
         isLoggedIn={isLoggedIn}
       />

@@ -8,6 +8,7 @@ import {
   signInWithPopup,
 } from "firebase/auth"
 import { auth } from "@/lib/firebase"
+import { API_BASE_URL } from "@/lib/api"
 import { AuthContext, type ApprovalStatus, type AuthContextType } from "./auth-context"
 
 // Set VITE_AUTH_ENABLED=false to run without authentication (demo / open-access mode).
@@ -29,8 +30,6 @@ const BYPASS_CONTEXT: AuthContextType = {
 function NoAuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={BYPASS_CONTEXT}>{children}</AuthContext.Provider>
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 
 async function getAdminClaim(firebaseUser: import("firebase/auth").User): Promise<boolean> {
   try {

@@ -1,9 +1,13 @@
+/*
+  Displays the results of the quiz at the end of a lesson
+*/
+
 import { ArrowLeft, RotateCcw, Star, Trophy } from "lucide-react"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavProps } from "@/components/AppNavbar"
 import { cn } from "@/lib/utils"
 import type { LessonDetail, LessonSign } from "./types"
 
-interface LessonQuizResultsProps {
+interface LessonQuizResultsProps extends NavProps {
   lesson: LessonDetail
   correct: number
   total: number
@@ -11,10 +15,6 @@ interface LessonQuizResultsProps {
   onRetry: () => void
   onBack: () => void
   onBackToLessons: () => void
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
 }
 
 function starsForScore(pct: number): number {
@@ -44,7 +44,7 @@ export function LessonQuizResults({
       <AppNavbar
         activeMode="learn"
         onNavigate={(dest) => onNavigate(dest)}
-        onLogout={onSignOut}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
         isLoggedIn={isLoggedIn}
       />

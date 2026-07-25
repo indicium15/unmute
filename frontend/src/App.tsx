@@ -43,6 +43,7 @@ function isKnownPath(pathname: string) {
 function App() {
   const { user, loading, logout, approvalStatus, isAdmin } = useAuth()
   const [mode, setModeState] = useState<AppMode>(() => modeFromPath(window.location.pathname))
+  // If the user is not an admin and is on the admin page, redirect to home
   const effectiveMode: AppMode = mode === "admin" && !isAdmin ? "home" : mode
   const { result, setResult, isLoading, error, retryAfter, translate } = useTranslation()
   const [pendingInput, setPendingInput] = useState<string | undefined>(undefined)
@@ -114,8 +115,7 @@ function App() {
   }, [])
 
   const setMode = (nextMode: AppMode) => {
-    // Redirect unauthenticated users to login for protected pages (only the
-    // lessons page and admin require login; translate/dictionary are open)
+    // Redirect unauthenticated users to login for lesson and admin page 
     if ((nextMode === "admin" || nextMode === "learn") && !user) {
       const nextPath = "/login"
       if (window.location.pathname !== nextPath) {
@@ -154,7 +154,7 @@ function App() {
         onNavigate={(dest) => setMode(dest)}
         onTranslate={handleHomeTranslate}
         onVoiceResult={user ? handleHomeVoiceResult : undefined}
-        onLogout={authAction}
+        onSignOut={authAction}
         isAdmin={isAdmin}
         isLoggedIn={!!user}
       />

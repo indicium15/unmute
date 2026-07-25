@@ -1,17 +1,8 @@
 import { useState, useEffect } from "react"
 import { ThumbsUp, ThumbsDown, Send } from "lucide-react"
-import { auth } from "@/lib/firebase"
+import { API_BASE_URL, authHeaders } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const user = auth.currentUser
-  if (!user) return { "Content-Type": "application/json" }
-  const token = await user.getIdToken()
-  return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
-}
 
 type FeedbackRating = "positive" | "negative"
 
@@ -34,7 +25,7 @@ export function FeedbackWidget({ logDocId }: { logDocId?: string }) {
     if (!rating) return
     setSubmitting(true)
     try {
-      const headers = await authHeaders()
+      const headers = { "Content-Type": "application/json", ...(await authHeaders()) }
       await fetch(`${API_BASE_URL}/api/feedback`, {
         method: "POST",
         headers,

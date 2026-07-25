@@ -1,6 +1,10 @@
+/*
+
+*/
+
 import { useMemo, useState } from "react"
 import { ArrowLeft } from "lucide-react"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavProps } from "@/components/AppNavbar"
 import { Footer } from "@/components/Footer"
 import { LessonCard } from "./LessonCard"
 import { difficultyTabLabel } from "./utils"
@@ -8,16 +12,12 @@ import type { LessonSummary, LessonProgress } from "./types"
 
 const DIFFICULTY_ORDER = ["Beginner", "Intermediate", "Advanced"]
 
-interface LessonsLandingPageProps {
+interface LessonsLandingPageProps extends NavProps {
   lessons: LessonSummary[]
   progress: LessonProgress[]
   loading: boolean
   error: string
   onSelectLesson: (lessonId: string) => void
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
 }
 
 export function LessonsLandingPage({
@@ -61,7 +61,7 @@ export function LessonsLandingPage({
       <AppNavbar
         activeMode="learn"
         onNavigate={(dest) => onNavigate(dest)}
-        onLogout={onSignOut}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
         isLoggedIn={isLoggedIn}
       />
