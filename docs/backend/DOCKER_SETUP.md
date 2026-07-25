@@ -22,7 +22,6 @@ rest directly from the container environment via `python-dotenv`):
 ```bash
 cat > backend/.env << 'EOF'
 AUTH_ENABLED=true
-LLM_PROVIDER=azure
 AZURE_OPENAI_API_KEY=...
 AZURE_OPENAI_ENDPOINT=...
 AZURE_OPENAI_API_VERSION=2025-04-01-preview
@@ -40,7 +39,7 @@ what `backend/docker-compose.yml` mounts into the container and points
 
 > **Note:** `backend/docker-compose.yml` also passes through a `GEMINI_API_KEY` environment
 > variable. It's a leftover from an earlier provider and isn't read by any current backend code
-> (the live LLM provider is Azure OpenAI via `LLM_PROVIDER=azure`, or OpenAI via `openai` — see
+> (the only LLM client is Azure OpenAI's `AzureOpenAIClient` in `backend/utils/llm.py` — see
 > `AGENTS.md`). You can leave it unset.
 
 ### 2. Build and run with Docker Compose (Recommended)

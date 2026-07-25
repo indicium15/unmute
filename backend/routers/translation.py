@@ -22,9 +22,9 @@ router = APIRouter()
 @router.post("/api/translate", response_model=TranslateResponse)
 @limiter.limit("5/minute;30/hour")
 def translate(request: Request, response: Response, req: GlossRequest, background_tasks: BackgroundTasks, _user: Optional[dict] = Depends(optional_approved_token)):
-    # 1. Text to Gloss with language support
-    print(f"Translating: {req.text} (language: {req.language or 'auto-detect'})")
-    gloss_result = llm_client.text_to_gloss(req.text, language=req.language)
+    # 1. Text to Gloss (language auto-detected by the LLM)
+    print(f"Translating: {req.text}")
+    gloss_result = llm_client.text_to_gloss(req.text)
     if gloss_result.error:
         raise HTTPException(
             status_code=502,
@@ -113,9 +113,7 @@ async def transcribe_audio(request: Request, response: Response, req: Transcribe
     # If auto_translate is enabled, automatically translate
     if req.auto_translate and transcription:
         print(f"Auto-translating: {transcription}")
-        # Use detected language if available, otherwise use provided language or auto-detect
-        translation_lang = detected_language or req.language
-        gloss_result = llm_client.text_to_gloss(transcription, language=translation_lang)
+        gloss_result = llm_client.text_to_gloss(transcription)
 
         # Build render plan
         plan = build_render_plan(gloss_result.gloss)
@@ -160,7 +158,7 @@ async def transcribe_audio(request: Request, response: Response, req: Transcribe
 
 
 @router.post("/api/feedback")
-def submit_feedback(req: FeedbackRequest, user: Optional[dict] = Depends(optional_approved_token)):
+def submit_feedback(req: FeedbackRequest):
     """Store a thumbs-up / thumbs-down rating (with optional comment) for a
     translation.  The ``log_doc_id`` links the feedback to the original entry
     in *translation_logs*.
@@ -171,8 +169,6 @@ def submit_feedback(req: FeedbackRequest, user: Optional[dict] = Depends(optiona
         )
 
     doc_id = log_feedback(
-        user_id=user.get("uid") if user else None,
-        user_email=user.get("email") if user else None,
         rating=req.rating,
         translation_log_id=req.log_doc_id,
         comment=req.comment,

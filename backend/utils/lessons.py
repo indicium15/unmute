@@ -1,6 +1,5 @@
-"""Static lesson content (loaded from content/lessons/*.json + content/tag_config.json)
-and per-user lesson progress, stored as a users/{uid}/lesson_progress/{lesson_id}
-Firestore subcollection.
+"""Deliver lesson content loaded from content/lessons/*.json + content/tag_config.json
+and per-user lesson progress from Firestore.
 """
 
 import json
@@ -12,6 +11,7 @@ from typing import List, Optional
 from models.lessons import LessonDetail, LessonJSON, LessonProgress, LessonSummary
 from utils.dictionary import get_sign_detail, vocab
 from utils.gcp import get_db, serialize_doc
+from firebase_admin import firestore
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +34,8 @@ def _load_lessons() -> List[LessonJSON]:
 
 
 def _load_tag_config() -> dict:
-    if _TAG_CONFIG_PATH.exists():
-        with open(_TAG_CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    with open(_TAG_CONFIG_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 lessons: List[LessonJSON] = _load_lessons()
@@ -49,7 +47,7 @@ def get_lesson_by_id(lesson_id: str) -> Optional[LessonJSON]:
 
 
 def get_lesson_summaries() -> List[LessonSummary]:
-    """Return all lesson summaries (metadata + sign count, no GIF data)."""
+    """Return all lesson metada and sign counts"""
     return [
         LessonSummary(
             lesson_id=lesson.lesson_id,
@@ -65,7 +63,7 @@ def get_lesson_summaries() -> List[LessonSummary]:
 
 
 def get_lesson_detail(lesson_id: str) -> Optional[LessonDetail]:
-    """Return full lesson detail with resolved GIF URLs for all signs."""
+    """Return full lesson detail with GIF URLs for all signs."""
     lesson = get_lesson_by_id(lesson_id)
     if not lesson:
         return None
@@ -136,8 +134,6 @@ def upsert_sign_progress(uid: str, lesson_id: str, token: str, total_signs: int)
     if ref is None:
         return None
     try:
-        from firebase_admin import firestore
-
         now = datetime.now(timezone.utc)
         is_new = not ref.get().exists
 
@@ -163,14 +159,11 @@ def upsert_sign_progress(uid: str, lesson_id: str, token: str, total_signs: int)
 
 
 def record_quiz_attempt(uid: str, lesson_id: str, score: int, total: int) -> Optional[LessonProgress]:
-    """Record a quiz attempt for a lesson: increments the attempt count and
-    updates the best score, atomically, inside a single-document transaction.
-    """
+    """Record a quiz attempt for a lesson, increment the attempt count and update the best score."""
     ref = _lesson_progress_ref(uid, lesson_id)
     if ref is None:
         return None
     try:
-        from firebase_admin import firestore
 
         now = datetime.now(timezone.utc)
         transaction = get_db().transaction()

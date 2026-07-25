@@ -7,7 +7,6 @@ from models.common import Usage
 
 class GlossRequest(BaseModel):
     text: str
-    language: Optional[str] = None  # Language code (e.g., 'en', 'zh', 'ms', 'ta'). If None, auto-detects.
 
 
 class GlossResult(BaseModel):

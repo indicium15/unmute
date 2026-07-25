@@ -1,6 +1,6 @@
-"""LLM provider clients (Azure GPT-5-mini text→gloss + Azure realtime Whisper
-transcription, with a legacy OpenAI fallback), USD cost estimation for their
-usage, and Firestore logging of that usage for the admin token-usage dashboard.
+"""
+Azure OpenAI clients for translation and whisper with cost estimation for usage
+Firestore logging for the admin token-usage dashboard.
 """
 
 import asyncio
@@ -9,13 +9,12 @@ import io
 import json
 import logging
 import os
-from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from openai import AzureOpenAI, OpenAI
+from openai import AzureOpenAI
 from pydub import AudioSegment
 from websockets.asyncio.client import connect as ws_connect
 
@@ -30,45 +29,65 @@ logger = logging.getLogger(__name__)
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 
-# ── Abstract base ────────────────────────────────────────────────────────────
+TEXT_MODEL = os.environ.get("AZURE_OPENAI_DEPLOYMENT")
+# Audio transcription runs on a separate Azure resource 
+WHISPER_MODEL = os.environ.get("AZURE_WHISPER_DEPLOYMENT")
+WHISPER_ENDPOINT = os.environ.get("AZURE_WHISPER_ENDPOINT")
+WHISPER_API_KEY = os.environ.get("AZURE_WHISPER_OPENAI_API_KEY")
+REALTIME_SAMPLE_RATE = 24000
 
-class LLMClient(ABC):
-    """Abstract base for LLM provider implementations."""
 
-    LANG_MAP = {
-        'en': 'English',
-        'zh': 'Chinese (Simplified or Traditional)',
-        'zh-CN': 'Chinese (Simplified)',
-        'zh-TW': 'Chinese (Traditional)',
-        'ms': 'Malay',
-        'ta': 'Tamil',
-        'hi': 'Hindi',
-        'es': 'Spanish',
-        'fr': 'French',
-        'de': 'German',
-        'ja': 'Japanese',
-        'ko': 'Korean',
-    }
+class AzureOpenAIClient:
+    def __init__(self, api_key: str = None):
+        api_key = api_key or os.environ.get("AZURE_OPENAI_API_KEY")
+        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION")
 
-    @abstractmethod
-    def text_to_gloss(self, text: str, allowed_tokens: List[str] = None, language: Optional[str] = None) -> GlossResult:
-        """Translate text to SGSL gloss tokens."""
-        ...
+        if api_key and endpoint:
+            self.client = AzureOpenAI(
+                api_key=api_key,
+                azure_endpoint=endpoint,
+                api_version=api_version,
+            )
+        else:
+            raise RuntimeError("Unable to initialize Azure Client.")
 
-    @abstractmethod
-    def transcribe_audio(self, audio_base64: str, mime_type: str = "audio/webm", language: Optional[str] = None) -> TranscriptionResult:
-        """Transcribe base64-encoded audio to text."""
-        ...
+    def create_prompt(self, text: str, allowed_tokens: List[str]) -> str:
+        token_str = ", ".join(allowed_tokens)
 
-    async def transcribe_audio_live(self, audio_base64: str, mime_type: str = "audio/webm", language: Optional[str] = None) -> TranscriptionResult:
-        """Async wrapper around transcribe_audio. Override for true async implementations."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.transcribe_audio, audio_base64, mime_type, language)
+        return f"""You are a multilingual Singapore Sign Language (SGSL) translator.
+    Your task is to translate text from ANY language into SGSL Gloss tokens.
+    First detect the input language automatically (English, Chinese, Malay, Tamil, Hindi, etc.),
+    then translate from the detected language to SGSL Gloss.
 
+    Important Constraints:
+    1. SGSL often uses Subject-Object-Verb (SOV) or Topic-Comment structure, different from English SVO.
+    2. You MUST use ONLY words from the provided vocabulary list below.
+    3. For words not in vocabulary, try synonyms (e.g., "MUM" -> "MOTHER", "Mama" -> "MOTHER").
+    4. Consider cultural context - SGSL reflects Singapore's multilingual environment.
+    5. For Chinese input: Consider tone and context; map to appropriate SGSL concepts.
+    6. For Malay/Tamil input: Translate meaningfully, not word-by-word.
+    7. If key concepts cannot be translated, include them in 'unmatched' array.
+    8. Preserve the semantic meaning and intent of the original text.
+
+    Vocabulary (use ONLY these tokens):
+    [{token_str}]
+
+    Input Text: "{text}"
+
+    Output JSON format strictly (no markdown, no code blocks):
+    {{
+    "gloss": ["TOKEN1", "TOKEN2", ...],
+    "unmatched": ["word1", ...],
+    "notes": "Brief explanation of translation choices and detected language",
+    "detected_language": "language code if auto-detected"
+    }}"""
+    
     def validate_gloss(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Filter gloss tokens to only those present in vocab. Operates on the
+        """
+        Filter gloss tokens to only those present in vocab. Operates on the
         raw JSON dict parsed directly from the LLM response, before it's
-        wrapped into a GlossResult.
+        converted to a GlossResult object.
         """
         raw_gloss = data.get("gloss", [])
         unmatched = list(data.get("unmatched", []))
@@ -85,104 +104,11 @@ class LLMClient(ABC):
         data["unmatched"] = unmatched
         return data
 
-    def _mock_response(self, text: str, allowed_tokens: List[str]) -> GlossResult:
-        """Keyword-matching fallback when no API key is configured."""
-        words = text.upper().split()
-        vocab_set = set(allowed_tokens)
-        gloss, unmatched = [], []
-
-        for w in words:
-            clean = vocab.apply_aliases("".join(c for c in w if c.isalnum() or c == '_'))
-            (gloss if clean in vocab_set else unmatched).append(clean if clean in vocab_set else w)
-
-        return GlossResult(gloss=gloss, unmatched=unmatched, notes="Mock response (no API key)")
-
-    def _lang_name(self, language: Optional[str]) -> Optional[str]:
-        if not language:
-            return None
-        return self.LANG_MAP.get(language.lower(), language)
-
-
-def _gloss_prompt(text: str, language: Optional[str], allowed_tokens: List[str], lang_name_fn) -> str:
-    token_str = ", ".join(allowed_tokens)
-
-    if language:
-        lang_name = lang_name_fn(language)
-        language_instructions = f"Input Language: {lang_name}. Translate from {lang_name} to SGSL Gloss."
-    else:
-        language_instructions = (
-            "First detect the input language automatically (English, Chinese, Malay, Tamil, Hindi, etc.), "
-            "then translate from the detected language to SGSL Gloss."
-        )
-
-    return f"""You are a multilingual Singapore Sign Language (SGSL) translator.
-Your task is to translate text from ANY language into SGSL Gloss tokens.
-{language_instructions}
-
-Important Constraints:
-1. SGSL often uses Subject-Object-Verb (SOV) or Topic-Comment structure, different from English SVO.
-2. You MUST use ONLY words from the provided vocabulary list below.
-3. For words not in vocabulary, try synonyms (e.g., "MUM" -> "MOTHER", "Mama" -> "MOTHER").
-4. Consider cultural context - SGSL reflects Singapore's multilingual environment.
-5. For Chinese input: Consider tone and context; map to appropriate SGSL concepts.
-6. For Malay/Tamil input: Translate meaningfully, not word-by-word.
-7. If key concepts cannot be translated, include them in 'unmatched' array.
-8. Preserve the semantic meaning and intent of the original text.
-
-Vocabulary (use ONLY these tokens):
-[{token_str}]
-
-Input Text: "{text}"
-
-Output JSON format strictly (no markdown, no code blocks):
-{{
-  "gloss": ["TOKEN1", "TOKEN2", ...],
-  "unmatched": ["word1", ...],
-  "notes": "Brief explanation of translation choices and detected language",
-  "detected_language": "language code if auto-detected"
-}}"""
-
-
-# ── Azure OpenAI (default provider) ─────────────────────────────────────────
-
-TEXT_MODEL = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-5.4-mini")
-
-# Audio transcription runs on a separate Azure resource that hosts the realtime
-# transcription models (gpt-realtime-whisper is only reachable via the realtime
-# websocket API, not the batch /audio/transcriptions REST endpoint).
-# .strip() guards against trailing newlines in values injected from Secret
-# Manager - a stray "\n" in the api-key header makes Azure drop the websocket
-# right after the handshake with no close frame.
-WHISPER_MODEL = os.environ.get("AZURE_WHISPER_DEPLOYMENT", "gpt-realtime-whisper").strip()
-WHISPER_ENDPOINT = (os.environ.get("AZURE_WHISPER_ENDPOINT") or "").strip() or None
-WHISPER_API_KEY = (os.environ.get("AZURE_WHISPER_OPENAI_API_KEY") or "").strip() or None
-REALTIME_SAMPLE_RATE = 24000
-
-
-class AzureOpenAIClient(LLMClient):
-    def __init__(self, api_key: str = None):
-        api_key = api_key or os.environ.get("AZURE_OPENAI_API_KEY")
-        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-04-01-preview")
-
-        if api_key and endpoint:
-            self.client = AzureOpenAI(
-                api_key=api_key,
-                azure_endpoint=endpoint,
-                api_version=api_version,
-            )
-        else:
-            print("Warning: AZURE_OPENAI_API_KEY/AZURE_OPENAI_ENDPOINT not set. Using mock mode.")
-            self.client = None
-
-    def text_to_gloss(self, text: str, allowed_tokens: List[str] = None, language: Optional[str] = None) -> GlossResult:
+    def text_to_gloss(self, text: str, allowed_tokens: List[str] = None) -> GlossResult:
         if allowed_tokens is None:
             allowed_tokens = vocab.get_allowed_tokens(text)
 
-        if not self.client:
-            return self._mock_response(text, allowed_tokens)
-
-        prompt = _gloss_prompt(text, language, allowed_tokens, self._lang_name)
+        prompt = self.create_prompt(text, allowed_tokens)
 
         try:
             response = self.client.responses.create(
@@ -232,8 +158,7 @@ class AzureOpenAIClient(LLMClient):
             segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format=fmt)
             segment = segment.set_frame_rate(REALTIME_SAMPLE_RATE).set_channels(1).set_sample_width(2)
             pcm_b64 = base64.b64encode(segment.raw_data).decode()
-            # gpt-realtime-whisper bills by audio duration, not tokens, so this
-            # is what pricing needs to estimate cost for this request.
+            # gpt-realtime-whisper bills by audio duration
             audio_seconds = segment.duration_seconds
         except Exception as e:
             return TranscriptionResult(transcription="", error=f"Failed to decode audio: {e}")
@@ -330,104 +255,19 @@ class AzureOpenAIClient(LLMClient):
         return TranscriptionResult(transcription="", error="Realtime session closed without a transcription result")
 
 
-# ── Legacy/fallback OpenAI provider ─────────────────────────────────────────
+llm_client = AzureOpenAIClient()
 
-OPENAI_TEXT_MODEL = "gpt-4o-mini"
-OPENAI_AUDIO_MODEL = "whisper-1"
-
-
-class OpenAIClient(LLMClient):
-    def __init__(self, api_key: str = None):
-        api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        if api_key:
-            self.client = OpenAI(api_key=api_key)
-        else:
-            print("Warning: OPENAI_API_KEY not set. Using mock mode.")
-            self.client = None
-
-    def text_to_gloss(self, text: str, allowed_tokens: List[str] = None, language: Optional[str] = None) -> GlossResult:
-        if allowed_tokens is None:
-            allowed_tokens = vocab.get_allowed_tokens(text)
-
-        if not self.client:
-            return self._mock_response(text, allowed_tokens)
-
-        prompt = _gloss_prompt(text, language, allowed_tokens, self._lang_name)
-
-        try:
-            response = self.client.chat.completions.create(
-                model=OPENAI_TEXT_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.1,
-            )
-            data = json.loads(response.choices[0].message.content)
-            return GlossResult(**self.validate_gloss(data))
-        except Exception as e:
-            print(f"OpenAI Error (text_to_gloss): {e}")
-            return GlossResult(gloss=[], unmatched=[], error=str(e))
-
-    def transcribe_audio(self, audio_base64: str, mime_type: str = "audio/webm", language: Optional[str] = None) -> TranscriptionResult:
-        if not self.client:
-            return TranscriptionResult(transcription="", error="No API key - audio transcription requires OpenAI API")
-
-        try:
-            audio_bytes = base64.b64decode(audio_base64)
-        except Exception as e:
-            return TranscriptionResult(transcription="", error=f"Failed to decode audio: {e}")
-
-        # whisper-1 accepts: flac, m4a, mp3, mp4, mpeg, mpga, oga, ogg, wav, webm
-        ext = mime_type.split(';')[0].split('/')[-1]
-        if ext not in ('flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm'):
-            ext = 'webm'
-        filename = f"audio.{ext}"
-
-        try:
-            kwargs: Dict[str, Any] = {
-                "model": OPENAI_AUDIO_MODEL,
-                "file": (filename, io.BytesIO(audio_bytes), mime_type.split(';')[0]),
-                "response_format": "verbose_json",
-            }
-            # whisper-1 only accepts ISO 639-1 codes, not full names
-            if language:
-                iso = language.split('-')[0].lower()
-                kwargs["language"] = iso
-
-            transcript = self.client.audio.transcriptions.create(**kwargs)
-            detected = getattr(transcript, 'language', None) or language or 'en'
-            return TranscriptionResult(transcription=transcript.text, detected_language=detected)
-        except Exception as e:
-            print(f"OpenAI Error (transcribe_audio): {e}")
-            return TranscriptionResult(transcription="", error=str(e))
-
-
-# ── Client factory / singleton ──────────────────────────────────────────────
-
-def _build_llm_client() -> LLMClient:
-    provider = os.environ.get("LLM_PROVIDER", "azure").lower()
-    if provider == "openai":
-        return OpenAIClient()
-    return AzureOpenAIClient()
-
-
-llm_client = _build_llm_client()
-
-
-# ── Pricing (Azure OpenAI USD cost estimation) ──────────────────────────────
+# Pricing estimation methodology
 # Azure doesn't expose a usage/billing API we can query, so these rates are
 # manually maintained from the Azure OpenAI pricing sheet and must be updated
-# by hand if the underlying deployment or its listed price changes. Keys must
-# match the deployment name reported in each request's ``model`` field
-# (``AZURE_OPENAI_DEPLOYMENT`` / ``AZURE_WHISPER_DEPLOYMENT``), not the
-# underlying model family, since that's what actually gets billed.
+# if the underlying deployment or its listed price changes. 
 
 # Token-metered models: USD per 1,000,000 tokens.
 TOKEN_PRICING = {
     "gpt-5.4-mini": {"input_per_million": 0.75, "output_per_million": 4.50},
 }
 
-# Duration-metered models: USD per hour of audio processed. The realtime
-# Whisper transcription deployment bills by audio duration, not tokens.
+# The realtime whisper transcription deployment bills by audio duration, not tokens.
 DURATION_PRICING = {
     "gpt-realtime-whisper": {"per_hour": 1.02},
 }
@@ -439,34 +279,27 @@ def estimate_cost_usd(
     output_tokens: int = 0,
     audio_seconds: float = 0,
 ) -> Optional[float]:
-    """Estimate USD cost for one request. Returns None if the model has no
-    known pricing (e.g. it was renamed/retired since the request was logged).
-    """
+    """Estimate USD cost for one request. Returns None if the model has no known pricing."""
     if model in TOKEN_PRICING:
         rates = TOKEN_PRICING[model]
         return (
             (input_tokens / 1_000_000) * rates["input_per_million"]
             + (output_tokens / 1_000_000) * rates["output_per_million"]
         )
-    if model in DURATION_PRICING:
+    elif model in DURATION_PRICING:
         rates = DURATION_PRICING[model]
         return (audio_seconds / 3600) * rates["per_hour"]
-    return None
+    else:
+        return None
 
 
-# ── Token-usage Firestore logging (admin dashboard) ─────────────────────────
+# Token-usage Firestore logging
 
 def log_token_usage(endpoint: str, usage: Usage) -> Optional[str]:
-    """Persist an LLM token usage reading to the *token_usage_logs* collection.
-
-    We don't have direct access to the Azure OpenAI usage/billing dashboard, so
-    this is our own approximation built from per-request usage figures returned
-    inline by the API (or, for the realtime Whisper endpoint, by the transcription
-    completion event).
-    """
+    """Persist an LLM token usage reading to the *token_usage_logs* collection."""
     db = get_db()
     if db is None:
-        logger.warning("[DB] Firestore unavailable – skipping token usage log")
+        logger.warning("[DB] Firestore unavailable - skipping token usage log")
         return None
 
     try:
@@ -527,9 +360,6 @@ def get_token_usage_stats() -> TokenUsageStats:
             total_tokens = data.get("total_tokens", 0) or 0
             audio_seconds = data.get("audio_seconds", 0) or 0
             endpoint = data.get("endpoint", "unknown")
-            # Computed from the current pricing rates rather than stored at
-            # write time, so this reflects the latest known pricing even for
-            # older log entries (this is an approximation tool, not an invoice).
             cost = estimate_cost_usd(data.get("model"), input_tokens, output_tokens, audio_seconds) or 0.0
 
             total_input += input_tokens

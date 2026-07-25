@@ -13,7 +13,7 @@ export function PaginationFooter({ page, itemCount, hasMore, onPageChange }: Pag
   return (
     <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--color-border-soft)]">
       <span className="text-xs text-text-muted">
-        Showing {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + itemCount}
+        Showing {page * PAGE_SIZE + 1}-{page * PAGE_SIZE + itemCount}
       </span>
       <div className="flex gap-1.5">
         <Button

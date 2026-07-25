@@ -103,7 +103,7 @@ gcloud run deploy kinnect-backend \
   --region asia-southeast1 \
   --memory 1Gi \
   --allow-unauthenticated \
-  --set-env-vars GCS_BUCKET_NAME=kinnect-sgsl-datasets,LLM_PROVIDER=azure,AZURE_OPENAI_ENDPOINT=https://bettersg-openai-sea-prod.openai.azure.com/,AZURE_OPENAI_API_VERSION=2025-04-01-preview,AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini,AZURE_WHISPER_ENDPOINT=https://YOUR-WHISPER-RESOURCE.openai.azure.com/,AZURE_WHISPER_DEPLOYMENT=gpt-realtime-whisper,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json \
+  --set-env-vars GCS_BUCKET_NAME=kinnect-sgsl-datasets,AZURE_OPENAI_ENDPOINT=https://bettersg-openai-sea-prod.openai.azure.com/,AZURE_OPENAI_API_VERSION=2025-04-01-preview,AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini,AZURE_WHISPER_ENDPOINT=https://YOUR-WHISPER-RESOURCE.openai.azure.com/,AZURE_WHISPER_DEPLOYMENT=gpt-realtime-whisper,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-key.json \
   --set-secrets AZURE_OPENAI_API_KEY=azure-openai-api-key:latest,AZURE_WHISPER_OPENAI_API_KEY=azure-whisper-api-key:latest,/secrets/firebase-key.json=firebase-key:latest \
   --project kinnect-sgsl
 ```
@@ -154,7 +154,6 @@ Then revoke/delete the old key on the Azure side.
 | `AZURE_WHISPER_ENDPOINT` | Separate Azure resource hosting the realtime Whisper deployment |
 | `AZURE_WHISPER_OPENAI_API_KEY` | From Secret Manager (`azure-whisper-api-key:latest`) |
 | `AZURE_WHISPER_DEPLOYMENT` | `gpt-realtime-whisper` |
-| `LLM_PROVIDER` | `azure` (or `openai`, which reads `OPENAI_API_KEY` instead) |
 | `GCS_BUCKET_NAME` | `kinnect-sgsl-datasets` |
 | `GCS_SGLS_DATASET_ROOT` | Optional; only needed if the bucket has a nested GIF prefix — see `docs/backend/GCS_SETUP.md` |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | `/secrets/firebase-key.json` (or `FIREBASE_SERVICE_ACCOUNT_JSON` inline) |

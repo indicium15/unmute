@@ -32,8 +32,8 @@ export interface TranscriptionLog {
 
 export interface FeedbackLog {
   id: string
-  // Optional - feedback can now be submitted anonymously since the translate
-  // page is accessible without login.
+  // Historical records only - feedback_logs no longer stores who made the
+  // request (the feedback widget doesn't require login).
   user_id?: string
   user_email?: string | null
   timestamp: string

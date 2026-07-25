@@ -5,7 +5,7 @@ interface PrivacyPolicyPageProps {
   onNavigate: (dest: NavMode | "home") => void
 }
 
-const LAST_UPDATED = "25 July 2026"
+const LAST_UPDATED = "26 July 2026"
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -81,9 +81,8 @@ export function PrivacyPolicyPage({ onNavigate }: PrivacyPolicyPageProps) {
           </p>
           <p>
             <strong className="text-[#101828]">Feedback.</strong> If you rate a translation or
-            leave a comment, we store that feedback. If you're signed in, it's linked to your
-            account (email and account ID) so we can follow up if needed; if you're signed out, it's
-            stored without any identifying information.
+            leave a comment, we store that feedback without any identifying information — it is
+            never linked to your account, even if you're signed in.
           </p>
           <p>
             <strong className="text-[#101828]">Technical data.</strong> To prevent abuse, we
@@ -102,7 +101,7 @@ export function PrivacyPolicyPage({ onNavigate }: PrivacyPolicyPageProps) {
           <p>
             We use this information to provide and improve the translation and learning features,
             maintain your account and lesson progress, keep the service reliable and free of abuse,
-            and respond to feedback you submit. We also track aggregate usage statistics that do not 
+            and review feedback you submit. We also track aggregate usage statistics that do not
             contain the content of what you translated or said.
           </p>
         </Section>

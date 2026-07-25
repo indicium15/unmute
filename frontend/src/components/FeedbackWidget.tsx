@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { ThumbsUp, ThumbsDown, Send } from "lucide-react"
-import { API_BASE_URL, authHeaders } from "@/lib/api"
+import { API_BASE_URL } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -25,10 +25,9 @@ export function FeedbackWidget({ logDocId }: { logDocId?: string }) {
     if (!rating) return
     setSubmitting(true)
     try {
-      const headers = { "Content-Type": "application/json", ...(await authHeaders()) }
       await fetch(`${API_BASE_URL}/api/feedback`, {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rating, log_doc_id: logDocId ?? null, comment: comment.trim() || null }),
       })
       setSubmitted(true)

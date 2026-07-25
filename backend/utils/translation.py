@@ -1,6 +1,5 @@
-"""Gloss-token → render-plan resolution, sign landmark pickle loading, and
-Firestore logging for translation/transcription/feedback (backing the admin
-logs + dashboard endpoints).
+"""Gloss-token to render-plan resolution, sign landmark .pkl loading, and
+Firestore logging for translation/transcription/feedback.
 """
 
 import logging
@@ -41,18 +40,15 @@ def build_render_plan(gloss_tokens: List[str]) -> List[RenderPlanItem]:
     return plan
 
 
-# ── Sign landmark pickles ────────────────────────────────────────────────────
-
-GCS_PKL_PREFIX = "sgsl_processed/landmarks_pkl"
-
 
 class SignSequenceManager:
     def __init__(self):
-        print(f"[SignSequenceManager] Loading landmark pickles from GCS: {GCS_PKL_PREFIX}")
+        self.GCS_PKL_PREFIX = "sgsl_processed/landmarks_pkl"
+        print(f"[SignSequenceManager] Loading landmark pickles from GCS: {self.GCS_PKL_PREFIX}")
 
     def _load_pkl_data(self, sign_name: str):
         """Load pickle data from GCS."""
-        gcs_path = f"{GCS_PKL_PREFIX}/{sign_name}.pkl"
+        gcs_path = f"{self.GCS_PKL_PREFIX}/{sign_name}.pkl"
         print(f"[SignSequenceManager] Loading from GCS: {gcs_path}")
         data = read_pickle(gcs_path)
         if data is None:
@@ -62,7 +58,7 @@ class SignSequenceManager:
     def _load_pkl_data_full_body_pose(self, sign_name: str):
         """Load full-body pose pickle data from GCS."""
         pose_filename = f"{sign_name}_full_body_pose.pkl"
-        gcs_path = f"{GCS_PKL_PREFIX}/{pose_filename}"
+        gcs_path = f"{self.GCS_PKL_PREFIX}/{pose_filename}"
         print(f"[SignSequenceManager] Loading full-body pose from GCS: {gcs_path}")
         data = read_pickle(gcs_path)
         if data is None:
@@ -290,8 +286,6 @@ class SignSequenceManager:
 sign_mgr = SignSequenceManager()
 
 
-# ── Translation/transcription/feedback logging ──────────────────────────────
-
 def log_translation(
     query_type: str,
     input_text: str,
@@ -307,22 +301,22 @@ def log_translation(
     """
     db = get_db()
     if db is None:
-        logger.warning("[DB] Firestore unavailable – skipping translation log")
+        logger.warning("[DB] Firestore unavailable - skipping translation log")
         return None
 
     try:
         doc_ref = db.collection("translation_logs").document(doc_id)
         doc_ref.set({
             "timestamp": datetime.now(timezone.utc),
-            # ── What the user sent ───────────────────────────────────────────
+            # What the user sent 
             "query_type": query_type,
             "input_text": input_text,
-            # ── Intermediate LLM response ────────────────────────────────────
+            # Intermediate LLM response
             "detected_language": gemini_response.detected_language,
             "gemini_gloss": gemini_response.gloss,
             "gemini_unmatched": gemini_response.unmatched,
             "gemini_notes": gemini_response.notes,
-            # ── Final speech/sign token output ───────────────────────────────
+            # Final speech/sign token output
             "output_tokens": [item.token for item in render_plan],
             "output_sign_names": [item.sign_name for item in render_plan if item.sign_name],
             "render_plan_count": len(render_plan),
@@ -341,7 +335,7 @@ def log_transcription(transcription: str, detected_language: Optional[str]) -> O
     """
     db = get_db()
     if db is None:
-        logger.warning("[DB] Firestore unavailable – skipping transcription log")
+        logger.warning("[DB] Firestore unavailable - skipping transcription log")
         return None
 
     try:
@@ -407,8 +401,6 @@ def get_transcription_logs(limit: int = 25, offset: int = 0) -> tuple[list[dict]
 
 
 def log_feedback(
-    user_id: Optional[str],
-    user_email: Optional[str],
     rating: str,
     translation_log_id: Optional[str] = None,
     comment: Optional[str] = None,
@@ -416,20 +408,18 @@ def log_feedback(
     """Persist a user feedback submission to the *feedback_logs* collection."""
     db = get_db()
     if db is None:
-        logger.warning("[DB] Firestore unavailable – skipping feedback log")
+        logger.warning("[DB] Firestore unavailable - skipping feedback log")
         return None
 
     try:
         doc_ref = db.collection("feedback_logs").document()
         doc_ref.set({
-            "user_id": user_id,
-            "user_email": user_email,
             "timestamp": datetime.now(timezone.utc),
             "translation_log_id": translation_log_id,
             "rating": rating,
             "comment": comment if comment else None,
         })
-        logger.info("[DB] Feedback logged for user %s → doc %s", user_id, doc_ref.id)
+        logger.info("[DB] Feedback logged: doc %s", doc_ref.id)
         return doc_ref.id
     except Exception as exc:
         logger.error("[DB] Failed to log feedback: %s", exc)
