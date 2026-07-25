@@ -282,7 +282,12 @@ export function LoginPage() {
             </div>
           </div>
           <div className="border-t border-gray-200 pt-5 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-[12px] text-[#99a1af]">© 2026 Kinnect. All rights reserved.</p>
+            <div className="flex items-center gap-3 text-[12px] text-[#99a1af]">
+              <p>© 2026 Kinnect. All rights reserved.</p>
+              <a href="/privacy" className="hover:text-[#6176f7] transition-colors">
+                Privacy Policy
+              </a>
+            </div>
             <div className="flex items-center gap-1 text-[12px] text-[#99a1af]">
               <span>Made with</span>
               <img src="/home/icon-heart.svg" alt="♥" className="w-3 h-3" />

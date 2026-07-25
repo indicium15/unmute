@@ -5,13 +5,14 @@ import { AdminPage } from "@/components/AdminPage"
 import { LearningPage } from "@/components/LearningPage"
 import { DictionaryPage } from "@/components/DictionaryPage"
 import { HomePage } from "@/components/HomePage"
+import { PrivacyPolicyPage } from "@/components/PrivacyPolicyPage"
 import { AppNavbar, type NavMode } from "@/components/AppNavbar"
 import { useTranslation, type TranslationResult } from "@/hooks/useTranslation"
 import { useAuth } from "@/contexts/useAuth"
 import { Shield, GraduationCap, Home, BookOpen, Languages } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-type AppMode = NavMode | "login"
+type AppMode = NavMode | "login" | "privacy"
 
 const NAV_ITEMS = [
   { mode: "home" as AppMode, path: "/home", label: "Home", Icon: Home },
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
 
 function modeFromPath(pathname: string): AppMode {
   if (pathname === "/login") return "login"
+  if (pathname === "/privacy") return "privacy"
   if (pathname === "/translate") return "translate"
   const mode = NAV_ITEMS.find((item) => item.path === pathname)?.mode
   if (mode) return mode
@@ -31,13 +33,14 @@ function modeFromPath(pathname: string): AppMode {
 
 function pathForMode(mode: AppMode) {
   if (mode === "login") return "/login"
+  if (mode === "privacy") return "/privacy"
   if (mode === "admin") return "/admin"
   if (mode === "translate") return "/translate"
   return NAV_ITEMS.find((item) => item.mode === mode)?.path ?? "/home"
 }
 
 function isKnownPath(pathname: string) {
-  return pathname === "/login" || pathname === "/admin" || pathname === "/translate" || NAV_ITEMS.some((item) => item.path === pathname)
+  return pathname === "/login" || pathname === "/privacy" || pathname === "/admin" || pathname === "/translate" || NAV_ITEMS.some((item) => item.path === pathname)
 }
 
 function App() {
@@ -163,6 +166,10 @@ function App() {
 
   if (effectiveMode === "login") {
     return <LoginPage />
+  }
+
+  if (effectiveMode === "privacy") {
+    return <PrivacyPolicyPage onNavigate={(dest) => setMode(dest)} />
   }
 
   // Only the lessons ("learn") page and Admin require login; Translate and
