@@ -3,7 +3,6 @@ Azure OpenAI clients for translation and whisper with cost estimation for usage
 Firestore logging for the admin token-usage dashboard.
 """
 
-import asyncio
 import base64
 import io
 import json
@@ -38,8 +37,8 @@ REALTIME_SAMPLE_RATE = 24000
 
 
 class AzureOpenAIClient:
-    def __init__(self, api_key: str = None):
-        api_key = api_key or os.environ.get("AZURE_OPENAI_API_KEY")
+    def __init__(self):
+        api_key = os.environ.get("AZURE_OPENAI_API_KEY")
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
         api_version = os.environ.get("AZURE_OPENAI_API_VERSION")
 
@@ -104,11 +103,8 @@ class AzureOpenAIClient:
         data["unmatched"] = unmatched
         return data
 
-    def text_to_gloss(self, text: str, allowed_tokens: List[str] = None) -> GlossResult:
-        if allowed_tokens is None:
-            allowed_tokens = vocab.allowed_tokens_list
-
-        prompt = self.create_prompt(text, allowed_tokens)
+    def text_to_gloss(self, text: str) -> GlossResult:
+        prompt = self.create_prompt(text, vocab.allowed_tokens_list)
 
         try:
             response = self.client.responses.create(
@@ -130,19 +126,6 @@ class AzureOpenAIClient:
         except Exception as e:
             print(f"Azure OpenAI Error (text_to_gloss): {e}")
             return GlossResult(gloss=[], unmatched=[], error=str(e))
-
-    def transcribe_audio(self, audio_base64: str, mime_type: str = "audio/webm", language: Optional[str] = None) -> TranscriptionResult:
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self.transcribe_audio_live(audio_base64, mime_type, language))
-
-        # Called from within an already-running event loop (e.g. the FastAPI
-        # route's fallback path) - run the coroutine on a dedicated thread/loop instead.
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, self.transcribe_audio_live(audio_base64, mime_type, language))
-            return future.result()
 
     async def transcribe_audio_live(self, audio_base64: str, mime_type: str = "audio/webm", language: Optional[str] = None) -> TranscriptionResult:
         if not WHISPER_API_KEY or not WHISPER_ENDPOINT:
@@ -275,9 +258,9 @@ DURATION_PRICING = {
 
 def estimate_cost_usd(
     model: Optional[str],
-    input_tokens: int = 0,
-    output_tokens: int = 0,
-    audio_seconds: float = 0,
+    input_tokens: int,
+    output_tokens: int,
+    audio_seconds: float,
 ) -> Optional[float]:
     """Estimate USD cost for one request. Returns None if the model has no known pricing."""
     if model in TOKEN_PRICING:
@@ -355,10 +338,10 @@ def get_token_usage_stats() -> TokenUsageStats:
         for doc in docs:
             data = doc.to_dict()
             ts = data.get("timestamp")
-            input_tokens = data.get("input_tokens", 0) or 0
-            output_tokens = data.get("output_tokens", 0) or 0
-            total_tokens = data.get("total_tokens", 0) or 0
-            audio_seconds = data.get("audio_seconds", 0) or 0
+            input_tokens = data.get("input_tokens", 0)
+            output_tokens = data.get("output_tokens", 0)
+            total_tokens = data.get("total_tokens", 0)
+            audio_seconds = data.get("audio_seconds", 0)
             endpoint = data.get("endpoint", "unknown")
             cost = estimate_cost_usd(data.get("model"), input_tokens, output_tokens, audio_seconds) or 0.0
 

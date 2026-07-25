@@ -71,9 +71,9 @@ def get_landmarks(sign_name: str, _user: Optional[dict] = Depends(optional_appro
         raise HTTPException(status_code=404, detail="Sign data not found")
 
     return SignLandmarkFrames(
-        pose_frames=pose_data.get("frames", []),
-        L_orig=pose_data.get("L_orig"),
-        L_max=pose_data.get("L_max"),
+        pose_frames=pose_data["frames"],
+        L_orig=pose_data["L_orig"],
+        L_max=pose_data["L_max"],
     )
 
 

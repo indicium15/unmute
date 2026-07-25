@@ -3,11 +3,6 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 
-class VocabPayload(BaseModel):
-    token_to_sign: Dict[str, str] = {}
-    aliases: Dict[str, str] = {}
-
-
 class SignVariant(BaseModel):
     sign_name: Optional[str] = None
     variant_label: Optional[str] = None

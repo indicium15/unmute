@@ -179,24 +179,6 @@ def get_all_users(limit: int = 50, offset: int = 0) -> tuple[list[UserRecord], b
         return [], False
 
 
-def approve_user(uid: str, approved_by: Optional[str] = None) -> bool:
-    """Set user status to ``approved``."""
-    db = get_db()
-    if db is None:
-        return False
-    try:
-        db.collection("users").document(uid).update({
-            "status": "approved",
-            "approved_at": datetime.now(timezone.utc),
-            "approved_by": approved_by,
-        })
-        logger.info("[DB] User %s approved by %s", uid, approved_by)
-        return True
-    except Exception as exc:
-        logger.error("[DB] Failed to approve user %s: %s", uid, exc)
-        return False
-
-
 def revoke_user(uid: str) -> bool:
     """Set user status to ``revoked``."""
     db = get_db()

@@ -16,7 +16,6 @@ import logging
 import os
 import pickle
 from datetime import datetime
-from functools import lru_cache
 from typing import Any, Optional
 
 import firebase_admin
@@ -66,17 +65,6 @@ def get_static_url(relative_path: str) -> str:
     return url
 
 
-def file_exists(relative_path: str) -> bool:
-    """Check if a file exists in GCS."""
-    try:
-        bucket = _get_gcs_bucket()
-        blob = bucket.blob(relative_path)
-        return blob.exists()
-    except Exception as e:
-        print(f"[GCS] Error checking file existence: {e}")
-        return False
-
-
 def read_json(relative_path: str) -> Optional[dict]:
     """
     Read a JSON file from GCS.
@@ -115,16 +103,6 @@ def read_pickle(relative_path: str) -> Optional[Any]:
     except Exception as e:
         print(f"[GCS] Error reading pickle {relative_path}: {e}")
         return None
-
-
-@lru_cache(maxsize=100)
-def read_pickle_cached(relative_path: str) -> Optional[Any]:
-    """
-    Read a pickle file with caching (for frequently accessed files).
-
-    Note: Uses LRU cache to avoid repeated GCS calls for the same file.
-    """
-    return read_pickle(relative_path)
 
 
 def get_dataset_info() -> DatasetInfo:

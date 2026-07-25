@@ -40,7 +40,7 @@ class VocabLoader:
             self.token_to_sign = data["token_to_sign"]
             self.sign_to_token = {v: k for k, v in self.token_to_sign.items()}
             self.allowed_tokens_list = list(self.token_to_sign.keys())
-            self.aliases = data.get("aliases", {})
+            self.aliases = data["aliases"]
             print(f"[Vocab] Loaded {len(self.token_to_sign)} tokens, {len(self.aliases)} aliases")
         else:
             print(f"Warning: Vocab file not found in GCS at {GCS_VOCAB_PATH}")

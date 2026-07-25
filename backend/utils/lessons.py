@@ -145,7 +145,7 @@ def upsert_sign_progress(uid: str, lesson_id: str, token: str, total_signs: int)
         }, merge=True)
 
         data = ref.get().to_dict()
-        signs_viewed = data.get("signs_viewed", [])
+        signs_viewed = data["signs_viewed"]
         if len(signs_viewed) >= total_signs and not data.get("completed"):
             ref.update({"completed": True, "completed_at": now})
             data["completed"] = True
