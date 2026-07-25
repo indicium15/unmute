@@ -463,14 +463,27 @@ interface UsageDay {
   input_tokens: number
   output_tokens: number
   total_tokens: number
+  cost_usd: number
+}
+
+interface EndpointUsage {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cost_usd: number
 }
 
 interface TokenUsageStats {
   total_input_tokens: number
   total_output_tokens: number
   total_tokens: number
-  by_endpoint: Record<string, { input_tokens: number; output_tokens: number; total_tokens: number }>
+  total_cost_usd: number
+  by_endpoint: Record<string, EndpointUsage>
   usage_by_day: UsageDay[]
+}
+
+function formatUsd(value: number): string {
+  return value < 1 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
 }
 
 function UsageBarChart({ data }: { data: UsageDay[] }) {
@@ -561,7 +574,9 @@ function UsagePanel() {
           <h2 className="font-serif text-3xl font-semibold text-text-primary">Token Usage</h2>
           <p className="text-sm text-text-muted mt-1">
             Approximate LLM token spend (translate + transcribe) — we don't have direct access to the
-            Azure usage dashboard, so this is tracked from per-request usage figures.
+            Azure usage dashboard, so this is tracked from per-request usage figures. Cost is estimated
+            using published Azure OpenAI rates: gpt-5.4-mini at $0.75 / $4.50 per 1M input/output tokens,
+            gpt-realtime-whisper at $1.02 per hour of audio processed.
           </p>
         </div>
         <Button
@@ -585,11 +600,12 @@ function UsagePanel() {
         </div>
       ) : stats ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             {[
-              { label: "Input Tokens (30d)", value: stats.total_input_tokens },
-              { label: "Output Tokens (30d)", value: stats.total_output_tokens },
-              { label: "Total Tokens (30d)", value: stats.total_tokens },
+              { label: "Input Tokens (30d)", value: stats.total_input_tokens.toLocaleString() },
+              { label: "Output Tokens (30d)", value: stats.total_output_tokens.toLocaleString() },
+              { label: "Total Tokens (30d)", value: stats.total_tokens.toLocaleString() },
+              { label: "Estimated Cost (30d)", value: formatUsd(stats.total_cost_usd) },
             ].map(({ label, value }) => (
               <Card
                 key={label}
@@ -597,9 +613,7 @@ function UsagePanel() {
                 style={{ boxShadow: "var(--shadow-soft)" }}
               >
                 <p className="text-xs uppercase tracking-widest text-text-muted mb-2">{label}</p>
-                <p className="font-serif text-4xl font-semibold text-text-primary">
-                  {value.toLocaleString()}
-                </p>
+                <p className="font-serif text-4xl font-semibold text-text-primary">{value}</p>
               </Card>
             ))}
           </div>
@@ -626,7 +640,7 @@ function UsagePanel() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-[var(--color-border-soft)]">
-                    {["Endpoint", "Input Tokens", "Output Tokens", "Total Tokens"].map((h) => (
+                    {["Endpoint", "Input Tokens", "Output Tokens", "Total Tokens", "Estimated Cost"].map((h) => (
                       <th
                         key={h}
                         className="py-3 px-4 text-xs uppercase tracking-widest text-text-muted font-medium whitespace-nowrap"
@@ -643,6 +657,7 @@ function UsagePanel() {
                       <td className="py-3 px-4 text-sm text-text-secondary">{usage.input_tokens.toLocaleString()}</td>
                       <td className="py-3 px-4 text-sm text-text-secondary">{usage.output_tokens.toLocaleString()}</td>
                       <td className="py-3 px-4 text-sm text-text-secondary">{usage.total_tokens.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-sm text-text-secondary">{formatUsd(usage.cost_usd)}</td>
                     </tr>
                   ))}
                 </tbody>

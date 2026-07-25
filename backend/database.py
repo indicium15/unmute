@@ -15,6 +15,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import pricing
+
 logger = logging.getLogger(__name__)
 
 _db = None
@@ -149,7 +151,9 @@ def log_token_usage(endpoint: str, usage: dict[str, Any]) -> Optional[str]:
     Args:
         endpoint: ``"translate"`` or ``"transcribe"``.
         usage:    Dict with ``input_tokens``/``output_tokens``/``total_tokens`` and
-                  optionally ``model``.
+                  optionally ``model``. The realtime Whisper deployment bills by
+                  audio duration rather than tokens, so an optional
+                  ``audio_seconds`` is also accepted for that case.
 
     Returns:
         The Firestore document ID on success, ``None`` on any failure.
@@ -163,6 +167,7 @@ def log_token_usage(endpoint: str, usage: dict[str, Any]) -> Optional[str]:
         input_tokens = usage.get("input_tokens") or 0
         output_tokens = usage.get("output_tokens") or 0
         total_tokens = usage.get("total_tokens") or (input_tokens + output_tokens)
+        audio_seconds = usage.get("audio_seconds") or 0
 
         doc_ref = db.collection("token_usage_logs").document()
         doc_ref.set({
@@ -172,6 +177,7 @@ def log_token_usage(endpoint: str, usage: dict[str, Any]) -> Optional[str]:
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": total_tokens,
+            "audio_seconds": audio_seconds,
         })
         return doc_ref.id
     except Exception as exc:
@@ -583,6 +589,7 @@ def get_token_usage_stats() -> dict:
         "total_input_tokens": 0,
         "total_output_tokens": 0,
         "total_tokens": 0,
+        "total_cost_usd": 0.0,
         "by_endpoint": {},
         "usage_by_day": [],
     }
@@ -593,6 +600,9 @@ def get_token_usage_stats() -> dict:
     from datetime import timedelta
     from collections import defaultdict
 
+    def _bucket():
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
+
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         docs = list(
@@ -601,9 +611,10 @@ def get_token_usage_stats() -> dict:
             .stream()
         )
 
-        by_day: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
-        by_endpoint: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+        by_day: dict[str, dict[str, float]] = defaultdict(_bucket)
+        by_endpoint: dict[str, dict[str, float]] = defaultdict(_bucket)
         total_input = total_output = total_all = 0
+        total_cost = 0.0
 
         for doc in docs:
             data = doc.to_dict()
@@ -611,27 +622,35 @@ def get_token_usage_stats() -> dict:
             input_tokens = data.get("input_tokens", 0) or 0
             output_tokens = data.get("output_tokens", 0) or 0
             total_tokens = data.get("total_tokens", 0) or 0
+            audio_seconds = data.get("audio_seconds", 0) or 0
             endpoint = data.get("endpoint", "unknown")
+            # Computed from the current pricing.py rates rather than stored at
+            # write time, so this reflects the latest known pricing even for
+            # older log entries (this is an approximation tool, not an invoice).
+            cost = pricing.estimate_cost_usd(data.get("model"), input_tokens, output_tokens, audio_seconds) or 0.0
 
             total_input += input_tokens
             total_output += output_tokens
             total_all += total_tokens
+            total_cost += cost
 
             by_endpoint[endpoint]["input_tokens"] += input_tokens
             by_endpoint[endpoint]["output_tokens"] += output_tokens
             by_endpoint[endpoint]["total_tokens"] += total_tokens
+            by_endpoint[endpoint]["cost_usd"] += cost
 
             if ts:
                 day = ts[:10] if isinstance(ts, str) else ts.date().isoformat()
                 by_day[day]["input_tokens"] += input_tokens
                 by_day[day]["output_tokens"] += output_tokens
                 by_day[day]["total_tokens"] += total_tokens
+                by_day[day]["cost_usd"] += cost
 
         today = datetime.now(timezone.utc).date()
         usage_by_day = [
             {
                 "date": (d := (today - timedelta(days=i)).isoformat()),
-                **by_day.get(d, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}),
+                **by_day.get(d, _bucket()),
             }
             for i in range(29, -1, -1)
         ]
@@ -640,8 +659,9 @@ def get_token_usage_stats() -> dict:
             "total_input_tokens": total_input,
             "total_output_tokens": total_output,
             "total_tokens": total_all,
-            "by_endpoint": dict(by_endpoint),
-            "usage_by_day": usage_by_day,
+            "total_cost_usd": round(total_cost, 4),
+            "by_endpoint": {k: {**v, "cost_usd": round(v["cost_usd"], 4)} for k, v in by_endpoint.items()},
+            "usage_by_day": [{**d, "cost_usd": round(d["cost_usd"], 4)} for d in usage_by_day],
         }
     except Exception as exc:
         logger.error("[DB] Failed to get token usage stats: %s", exc)

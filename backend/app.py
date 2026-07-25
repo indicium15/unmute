@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -184,7 +184,7 @@ def health():
 
 @app.post("/api/translate", response_model=TranslateResponse)
 @limiter.limit("5/minute;30/hour")
-def translate(request: Request, req: GlossRequest, background_tasks: BackgroundTasks, _user: Optional[dict] = Depends(optional_approved_token)):
+def translate(request: Request, response: Response, req: GlossRequest, background_tasks: BackgroundTasks, _user: Optional[dict] = Depends(optional_approved_token)):
     # 1. Text to Gloss (Gemini) with language support
     print(f"Translating: {req.text} (language: {req.language or 'auto-detect'})")
     gloss_result = gemini.text_to_gloss(req.text, language=req.language)
@@ -269,7 +269,7 @@ class TranscribeResponse(BaseModel):
 
 @app.post("/api/transcribe")
 @limiter.limit("3/minute;20/hour")
-async def transcribe_audio(request: Request, req: TranscribeRequest, background_tasks: BackgroundTasks, _user: Optional[dict] = Depends(optional_approved_token)):
+async def transcribe_audio(request: Request, response: Response, req: TranscribeRequest, background_tasks: BackgroundTasks, _user: Optional[dict] = Depends(optional_approved_token)):
     """
     Transcribe audio to text using Gemini Live API with automatic VAD.
     Supports multiple languages: English, Chinese, Malay, Tamil, and others.

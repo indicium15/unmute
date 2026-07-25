@@ -138,6 +138,9 @@ Output JSON format strictly (no markdown, no code blocks):
             segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format=fmt)
             segment = segment.set_frame_rate(REALTIME_SAMPLE_RATE).set_channels(1).set_sample_width(2)
             pcm_b64 = base64.b64encode(segment.raw_data).decode()
+            # gpt-realtime-whisper bills by audio duration, not tokens, so this
+            # is what pricing.py needs to estimate cost for this request.
+            audio_seconds = segment.duration_seconds
         except Exception as e:
             return {"transcription": "", "error": f"Failed to decode audio: {e}"}
 
@@ -190,14 +193,16 @@ Output JSON format strictly (no markdown, no code blocks):
                                 "transcription": event.get("transcript", ""),
                                 "detected_language": language or "en",
                             }
-                            raw_usage = event.get("usage")
-                            if raw_usage:
-                                result["usage"] = {
-                                    "model": WHISPER_MODEL,
-                                    "input_tokens": raw_usage.get("input_tokens"),
-                                    "output_tokens": raw_usage.get("output_tokens"),
-                                    "total_tokens": raw_usage.get("total_tokens"),
-                                }
+                            raw_usage = event.get("usage") or {}
+                            # Always attach usage (pricing is duration-based, so
+                            # this is needed even when the API omits token counts).
+                            result["usage"] = {
+                                "model": WHISPER_MODEL,
+                                "input_tokens": raw_usage.get("input_tokens"),
+                                "output_tokens": raw_usage.get("output_tokens"),
+                                "total_tokens": raw_usage.get("total_tokens"),
+                                "audio_seconds": audio_seconds,
+                            }
                             break
                         if event.get("type") == "conversation.item.input_audio_transcription.failed":
                             result = {"transcription": "", "error": event.get("error", {}).get("message", "Transcription failed")}
