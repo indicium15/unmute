@@ -37,10 +37,7 @@ class VocabLoader:
         data = read_json(GCS_VOCAB_PATH)
 
         if data:
-            if "token_to_sign" in data:
-                self.token_to_sign = data["token_to_sign"]
-            else:
-                self.token_to_sign = data
+            self.token_to_sign = data["token_to_sign"]
             self.sign_to_token = {v: k for k, v in self.token_to_sign.items()}
             self.allowed_tokens_list = list(self.token_to_sign.keys())
             self.aliases = data.get("aliases", {})
@@ -54,13 +51,8 @@ class VocabLoader:
             self.signs_metadata = smd
             print(f"[Vocab] Loaded signs_metadata for {len(smd)} signs")
 
-    def canon(self, text: str) -> str:
-        if not text:
-            return ""
-        return text.strip().upper()
-
     def apply_aliases(self, token: str) -> str:
-        token = self.canon(token)
+        token = token.strip().upper() if token else ""
         return self.aliases.get(token, token)
 
     def token_to_video_name(self, token: str) -> Optional[str]:
@@ -78,9 +70,6 @@ class VocabLoader:
 
     def video_name_to_token(self, sign_name: str) -> Optional[str]:
         return self.sign_to_token.get(sign_name)
-
-    def get_allowed_tokens(self, text_context: str = "") -> List[str]:
-        return self.allowed_tokens_list
 
     def validate_token(self, token: str) -> bool:
         token = self.apply_aliases(token)

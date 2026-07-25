@@ -32,6 +32,6 @@ def health():
     storage_info = get_dataset_info()
     return {
         "status": "ok",
-        "vocab_size": len(vocab.get_allowed_tokens()),
+        "vocab_size": len(vocab.allowed_tokens_list),
         "storage": storage_info,
     }

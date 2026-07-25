@@ -8,10 +8,6 @@ class PasswordValidationRequest(BaseModel):
     password: str
 
 
-class AllowlistRequest(BaseModel):
-    email: str
-
-
 class RegisterResult(BaseModel):
     is_new: bool
     status: str
@@ -29,13 +25,6 @@ class UserRecord(BaseModel):
     is_admin: Optional[bool] = None
     admin_updated_at: Optional[str] = None
     admin_set_by: Optional[str] = None
-
-
-class AllowlistEntry(BaseModel):
-    id: str
-    email: str
-    added_at: Optional[str] = None
-    added_by: Optional[str] = None
 
 
 class QueryDayCount(BaseModel):

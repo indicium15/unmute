@@ -1,5 +1,5 @@
-"""Firebase ID token verification, the user-approval workflow (users +
-allowed_emails Firestore collections), and password strength validation.
+"""Firebase ID token verification, the user-approval workflow (users
+Firestore collection), and password strength validation.
 """
 
 import logging
@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from firebase_admin import auth as firebase_auth
 
-from models.auth import AllowlistEntry, RegisterResult, UserRecord
+from models.auth import RegisterResult, UserRecord
 from utils.gcp import AUTH_ENABLED, get_db, serialize_doc
 
 logger = logging.getLogger(__name__)
@@ -112,41 +112,27 @@ def validate_password_strength(password: str, email: Optional[str] = None) -> Op
 
 # ── User management (approval workflow) ─────────────────────────────────────
 
-def register_user(uid: str, email: Optional[str], initial_status: str = "approved") -> RegisterResult:
-    """Upsert a user into the ``users`` collection.
-
-    Creates the document with ``initial_status`` if it doesn't exist.
-    If the user already exists with ``pending`` status, promotes them to ``approved``
-    (handles users who were pending before the allowlist was introduced).
-    """
+def register_user(uid: str, email: Optional[str]) -> RegisterResult:
+    """Upsert a user into the ``users`` collection, approved by default."""
     db = get_db()
     if db is None:
-        return RegisterResult(is_new=False, status=initial_status)
+        return RegisterResult(is_new=False, status="approved")
     try:
         doc_ref = db.collection("users").document(uid)
         doc = doc_ref.get()
         if doc.exists:
-            existing_status = doc.to_dict().get("status", "pending")
-            if existing_status == "pending":
-                doc_ref.update({
-                    "status": "approved",
-                    "approved_at": datetime.now(timezone.utc),
-                    "approved_by": "allowlist",
-                })
-                logger.info("[DB] Promoted pending user %s to approved via allowlist", uid)
-                return RegisterResult(is_new=False, status="approved")
-            return RegisterResult(is_new=False, status=existing_status)
+            return RegisterResult(is_new=False, status=doc.to_dict().get("status", "approved"))
         doc_ref.set({
             "uid": uid,
             "email": email,
-            "status": initial_status,
+            "status": "approved",
             "registered_at": datetime.now(timezone.utc),
         })
-        logger.info("[DB] Registered new user %s with status=%s", uid, initial_status)
-        return RegisterResult(is_new=True, status=initial_status)
+        logger.info("[DB] Registered new user %s with status=approved", uid)
+        return RegisterResult(is_new=True, status="approved")
     except Exception as exc:
         logger.error("[DB] Failed to register user %s: %s", uid, exc)
-        return RegisterResult(is_new=False, status=initial_status)
+        return RegisterResult(is_new=False, status="approved")
 
 
 def get_user_status(uid: str) -> Optional[str]:
@@ -169,75 +155,6 @@ def is_approved_user(uid: str, decoded_token: dict) -> bool:
     if decoded_token.get("admin") is True:
         return True
     return get_user_status(uid) == "approved"
-
-
-# ── Email allowlist ──────────────────────────────────────────────────────────
-
-def is_email_allowed(email: str) -> bool:
-    """Return ``True`` if the email exists in the ``allowed_emails`` collection."""
-    db = get_db()
-    if db is None:
-        return False
-    try:
-        return db.collection("allowed_emails").document(email.strip().lower()).get().exists
-    except Exception as exc:
-        logger.error("[DB] Failed to check allowed_emails for %s: %s", email, exc)
-        return False
-
-
-def add_allowed_email(email: str, added_by: Optional[str] = None) -> bool:
-    """Add an email to the allowlist. Idempotent."""
-    db = get_db()
-    if db is None:
-        return False
-    try:
-        doc_id = email.strip().lower()
-        db.collection("allowed_emails").document(doc_id).set({
-            "email": doc_id,
-            "added_at": datetime.now(timezone.utc),
-            "added_by": added_by,
-        })
-        logger.info("[DB] Added %s to allowlist (by %s)", doc_id, added_by)
-        return True
-    except Exception as exc:
-        logger.error("[DB] Failed to add allowed email %s: %s", email, exc)
-        return False
-
-
-def remove_allowed_email(email: str) -> bool:
-    """Remove an email from the allowlist."""
-    db = get_db()
-    if db is None:
-        return False
-    try:
-        db.collection("allowed_emails").document(email.strip().lower()).delete()
-        logger.info("[DB] Removed %s from allowlist", email.strip().lower())
-        return True
-    except Exception as exc:
-        logger.error("[DB] Failed to remove allowed email %s: %s", email, exc)
-        return False
-
-
-def get_allowed_emails(limit: int = 100, offset: int = 0) -> tuple[list[AllowlistEntry], bool]:
-    """Return a page of allowed emails ordered by added_at descending."""
-    db = get_db()
-    if db is None:
-        return [], False
-    try:
-        docs = list(
-            db.collection("allowed_emails")
-            .order_by("added_at", direction="DESCENDING")
-            .limit(limit + 1)
-            .offset(offset)
-            .stream()
-        )
-        has_more = len(docs) > limit
-        return [
-            AllowlistEntry(id=d.id, **serialize_doc(d.to_dict())) for d in docs[:limit]
-        ], has_more
-    except Exception as exc:
-        logger.error("[DB] Failed to fetch allowed emails: %s", exc)
-        return [], False
 
 
 def get_all_users(limit: int = 50, offset: int = 0) -> tuple[list[UserRecord], bool]:

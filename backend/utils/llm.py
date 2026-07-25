@@ -94,7 +94,7 @@ class AzureOpenAIClient:
         validated = []
 
         for token in raw_gloss:
-            canon = vocab.apply_aliases(vocab.canon(token))
+            canon = vocab.apply_aliases(token)
             if vocab.validate_token(canon):
                 validated.append(canon)
             else:
@@ -106,7 +106,7 @@ class AzureOpenAIClient:
 
     def text_to_gloss(self, text: str, allowed_tokens: List[str] = None) -> GlossResult:
         if allowed_tokens is None:
-            allowed_tokens = vocab.get_allowed_tokens(text)
+            allowed_tokens = vocab.allowed_tokens_list
 
         prompt = self.create_prompt(text, allowed_tokens)
 

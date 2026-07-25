@@ -32,7 +32,7 @@ def get_learning_signs(
         raise HTTPException(status_code=400, detail="offset must be non-negative")
 
     query = q.strip().upper()
-    tokens = sorted(vocab.get_allowed_tokens())
+    tokens = sorted(vocab.allowed_tokens_list)
     if query:
         tokens = [token for token in tokens if query in token or query in (vocab.token_to_video_name(token) or "").upper()]
 
@@ -52,7 +52,7 @@ def get_learning_signs(
 @router.get("/api/learning/quiz")
 def get_quiz(_user=Depends(optional_approved_token)):
     """Return a random sign GIF and 4 multiple-choice token options (1 correct, 3 wrong)."""
-    tokens = vocab.get_allowed_tokens()
+    tokens = vocab.allowed_tokens_list
     if len(tokens) < 4:
         raise HTTPException(status_code=500, detail="Vocabulary too small for a quiz")
 
