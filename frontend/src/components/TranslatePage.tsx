@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { AlertCircle, ArrowLeft, ChevronLeft, ChevronRight, Loader2, Mic, Pause, Play, Search, Square, Timer } from "lucide-react"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavProps } from "@/components/AppNavbar"
 import { Footer } from "@/components/Footer"
 import { FeedbackWidget } from "@/components/FeedbackWidget"
 import { SignMediaCard } from "@/components/signs/SignMediaCard"
@@ -24,11 +24,7 @@ function formatCountdown(seconds: number): string {
   return `${seconds}s`
 }
 
-interface TranslatePageProps {
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut?: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
+interface TranslatePageProps extends NavProps {
   result: TranslationResult | null
   isLoading: boolean
   error?: string | null

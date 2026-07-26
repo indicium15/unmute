@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react"
 import { Search, SlidersHorizontal } from "lucide-react"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavProps } from "@/components/AppNavbar"
 import { SignDetailPage } from "@/components/SignDetailPage"
 import { Footer } from "@/components/Footer"
 import { getTagStyle } from "@/lib/categories"
@@ -13,11 +13,7 @@ function formatSignLabel(token: string): string {
     .replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
-export interface DictionaryPageProps {
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut?: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
+export interface DictionaryPageProps extends NavProps {
   initialToken?: string
   onInitialTokenConsumed?: () => void
 }

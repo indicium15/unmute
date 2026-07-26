@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavMode, type NavProps } from "@/components/AppNavbar"
 import { Footer } from "@/components/Footer"
 import { SignMediaCard } from "@/components/signs/SignMediaCard"
 import { SignParametersTable } from "@/components/signs/SignParametersTable"
@@ -9,15 +9,11 @@ import { type SignDetail, formatSignLabel } from "@/components/signs/types"
 
 export type { SignVariant, SignDetail } from "@/components/signs/types"
 
-interface SignDetailPageProps {
+interface SignDetailPageProps extends NavProps {
   sign: SignDetail
   relatedSigns: SignDetail[]
   onBack: () => void
   onSelectSign: (sign: SignDetail) => void
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut?: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
 }
 
 export function SignDetailPage({

@@ -1,6 +1,10 @@
+/*
+  Displays the quiz at the end of a lesson and handles the quiz results
+*/
+
 import { useMemo, useState } from "react"
 import { ArrowLeft, ChevronRight, Circle, CircleCheck, CircleX } from "lucide-react"
-import { AppNavbar, type NavMode } from "@/components/AppNavbar"
+import { AppNavbar, type NavProps } from "@/components/AppNavbar"
 import { cn } from "@/lib/utils"
 import { formatSignLabel, shuffle } from "./utils"
 import type { LessonDetail, LessonSign } from "./types"
@@ -13,14 +17,10 @@ export interface LessonQuizResult {
   missed: LessonSign[]
 }
 
-interface LessonQuizProps {
+interface LessonQuizProps extends NavProps {
   lesson: LessonDetail
   onComplete: (result: LessonQuizResult) => void
   onBack: () => void
-  onNavigate: (dest: NavMode | "home") => void
-  onSignOut: () => void
-  isAdmin?: boolean
-  isLoggedIn?: boolean
 }
 
 function usageBullets(visualGuide?: string | null): string[] {
@@ -96,7 +96,7 @@ export function LessonQuiz({ lesson, onComplete, onBack, onNavigate, onSignOut, 
       <AppNavbar
         activeMode="learn"
         onNavigate={(dest) => onNavigate(dest)}
-        onLogout={onSignOut}
+        onLogout={onSignOut ?? (() => {})}
         isAdmin={isAdmin}
         isLoggedIn={isLoggedIn}
       />
@@ -112,14 +112,14 @@ export function LessonQuiz({ lesson, onComplete, onBack, onNavigate, onSignOut, 
             Back
           </button>
           <h1 className="text-center text-[30px] font-bold leading-9 text-white">{lesson.lesson_name}</h1>
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <div className="h-2 max-w-[400px] flex-1 overflow-hidden rounded-full bg-white/30">
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <div className="h-2 w-full max-w-[400px] overflow-hidden rounded-full bg-white/30">
               <div
                 className="h-full rounded-full bg-white transition-all"
                 style={{ width: `${((index + 1) / order.length) * 100}%` }}
               />
             </div>
-            <span className="shrink-0 text-[12px] font-medium text-white/80">
+            <span className="text-[12px] font-medium text-white/80">
               {index + 1}/{order.length}
             </span>
           </div>

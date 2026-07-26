@@ -1,3 +1,7 @@
+/*
+  Displays a lesson card with the lesson name, progress, and a button to view the lesson
+*/
+
 import { ChevronRight } from "lucide-react"
 import type { LessonSummary, LessonProgress } from "./types"
 

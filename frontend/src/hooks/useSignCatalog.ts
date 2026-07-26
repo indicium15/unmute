@@ -1,16 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { auth } from "@/lib/firebase"
+import { API_BASE_URL, authHeaders } from "@/lib/api"
 import { setTagConfig, type TagStyle } from "@/lib/categories"
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 const PAGE_SIZE = 100
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const user = auth.currentUser
-  if (!user) return {}
-  const token = await user.getIdToken()
-  return { Authorization: `Bearer ${token}` }
-}
 
 export interface CatalogSign {
   token: string

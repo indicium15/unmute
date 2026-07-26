@@ -1,16 +1,8 @@
 import { useState, useCallback, useRef } from "react"
 import type { TranslationResult } from "./useTranslation"
-import { auth } from "@/lib/firebase"
+import { API_BASE_URL, authHeaders } from "@/lib/api"
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 const TRANSCRIBE_API_URL = `${API_BASE_URL}/api/transcribe`
-
-async function getAuthHeader(): Promise<Record<string, string>> {
-  const user = auth.currentUser
-  if (!user) return {}
-  const token = await user.getIdToken()
-  return { Authorization: `Bearer ${token}` }
-}
 
 interface UseVoiceRecordingOptions {
   onResult?: (result: TranslationResult) => void
@@ -49,10 +41,9 @@ export function useVoiceRecording(options: UseVoiceRecordingOptions = {}) {
       const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" })
       const base64Audio = await blobToBase64(audioBlob)
 
-      const authHeader = await getAuthHeader()
       const res = await fetch(TRANSCRIBE_API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({
           audio_data: base64Audio,
           mime_type: "audio/webm",

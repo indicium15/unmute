@@ -67,7 +67,12 @@ export function Footer({ onNavigate }: FooterProps) {
           </div>
         </div>
         <div className="border-t border-[#e5e7eb] pt-6 flex flex-col sm:flex-row items-center gap-4 sm:justify-between">
-          <p className="text-[12px] text-[#99a1af]">© 2026 Kinnect. All rights reserved.</p>
+          <div className="flex items-center gap-3 text-[12px] text-[#99a1af]">
+            <p>© 2026 Kinnect. All rights reserved.</p>
+            <a href="/privacy" className="hover:text-[#6176f7] transition-colors">
+              Privacy Policy
+            </a>
+          </div>
           <a
             href="https://better.sg/"
             target="_blank"
